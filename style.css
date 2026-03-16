@@ -48,8 +48,8 @@ button:hover { background: var(--surface2); }
 .tab-panel { display: none; height: 100%; }
 .tab-panel.active { display: flex; flex-direction: column; }
 
-/* SIM: 3 COLUMNS */
-.sim-layout { display: grid; grid-template-columns: 1fr 160px 240px; gap: 10px; height: 100%; min-height: 0; }
+/* SIM: 3 COLUMNS — equal chart sections, fixed controls */
+.sim-layout { display: grid; grid-template-columns: 1fr 1fr 240px; gap: 10px; height: 100%; min-height: 0; }
 .canvas-section { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
 .middle-section  { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
 .canvas-label { font-size: 9px; color: var(--muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .05em; flex-shrink: 0; }
@@ -58,11 +58,10 @@ button:hover { background: var(--surface2); }
 #giniCanvas     { width: 100%; flex: 1; min-height: 0; border-radius: 3px; display: block; }
 #economyCanvas  { width: 100%; flex: 2; min-height: 0; border-radius: 3px; display: block; }
 
-/* CONTROLS — outer has overflow:visible so tooltips escape the scroll container */
-.controls { display: flex; flex-direction: column; min-height: 0; overflow: visible; }
-.controls-inner { overflow-y: auto; flex: 1; padding-right: 3px; display: flex; flex-direction: column; gap: 7px; min-height: 0; }
-.controls-inner::-webkit-scrollbar { width: 2px; }
-.controls-inner::-webkit-scrollbar-thumb { background: var(--border); }
+/* CONTROLS */
+.controls { display: flex; flex-direction: column; gap: 7px; overflow-y: auto; padding-right: 3px; }
+.controls::-webkit-scrollbar { width: 2px; }
+.controls::-webkit-scrollbar-thumb { background: var(--border); }
 .section-title { font-size: 10px; color: var(--muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .07em; }
 .control-group { display: flex; flex-direction: column; gap: 3px; }
 .control-row { display: flex; justify-content: space-between; align-items: center; }
@@ -77,21 +76,16 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 11px;
 input[type=range]:hover::-webkit-slider-thumb { background: var(--accent); }
 select { background: var(--surface); border: 0.5px solid var(--border); color: var(--text); font-family: var(--font-mono); font-size: 11px; padding: 3px 7px; border-radius: 5px; cursor: pointer; outline: none; }
 
-/* TIER GRID — 3 columns: name | % | win rate */
+/* TIER GRID */
 .tier-grid { display: flex; flex-direction: column; gap: 6px; }
-.tier-header { display: grid; grid-template-columns: 52px 36px 1fr; gap: 4px; align-items: center; }
-.tier-row    { display: grid; grid-template-columns: 52px 36px 1fr; gap: 4px; align-items: center; }
+.tier-header { display: grid; grid-template-columns: 52px 36px 1fr 1fr; gap: 4px; align-items: center; }
+.tier-row    { display: grid; grid-template-columns: 52px 36px 1fr 1fr; gap: 4px; align-items: center; }
 .tier-name { font-size: 11px; font-weight: 500; }
 .tier-inp  { width: 36px; background: var(--surface2); border: 0.5px solid var(--border); color: var(--text); font-family: var(--font-mono); font-size: 11px; padding: 3px 5px; border-radius: 4px; text-align: right; }
 .wr-cell   { display: flex; align-items: center; gap: 3px; }
 .wr-cell input[type=range] { flex: 1; }
 .bracket-row { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
 .bracket-inp { width: 40px; background: var(--surface2); border: 0.5px solid var(--border); color: var(--text); font-family: var(--font-mono); font-size: 11px; padding: 3px 5px; border-radius: 4px; text-align: right; }
-
-/* REDISTRIBUTION WEIGHTS */
-.rw-section { background: var(--surface2); border-radius: 5px; padding: 7px 9px; }
-.rw-rows { display: flex; flex-direction: column; gap: 5px; }
-.rw-row { display: grid; grid-template-columns: 46px 1fr 32px; gap: 5px; align-items: center; }
 
 /* AGENTS TAB */
 .agents-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 7px; flex-shrink: 0; }
@@ -160,7 +154,7 @@ input[type=text] { background: var(--surface); border: 0.5px solid var(--border)
 @keyframes flash { 0%,100%{opacity:1} 50%{opacity:.3} }
 #pill-recession { animation: flash 1s infinite; }
 
-/* TOOLTIPS */
+/* TOOLTIPS — rendered as fixed div via JS to escape all stacking contexts */
 .tip {
   display: inline-flex;
   align-items: center;
@@ -174,49 +168,24 @@ input[type=text] { background: var(--surface); border: 0.5px solid var(--border)
   font-size: 9px;
   font-family: var(--font-mono);
   cursor: help;
-  position: relative;
   vertical-align: middle;
   margin-left: 3px;
   flex-shrink: 0;
-  z-index: 10;
 }
-.tip::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: calc(100% + 7px);
-  right: -4px;
-  left: auto;
-  transform: none;
+#tt {
+  position: fixed;
+  z-index: 99999;
+  pointer-events: none;
+  max-width: 220px;
   background: #1c1f28;
   border: 0.5px solid var(--border2);
   color: var(--text);
   font-size: 11px;
   font-family: var(--font-sans);
-  font-weight: 400;
   line-height: 1.5;
   padding: 7px 10px;
   border-radius: 6px;
-  width: 220px;
-  white-space: normal;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .15s;
-  z-index: 9999;
   box-shadow: 0 4px 16px rgba(0,0,0,.6);
+  white-space: normal;
+  display: none;
 }
-.tip::before {
-  content: '';
-  position: absolute;
-  bottom: calc(100% + 2px);
-  right: 2px;
-  left: auto;
-  transform: none;
-  border: 5px solid transparent;
-  border-top-color: var(--border2);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .15s;
-  z-index: 10000;
-}
-.tip:hover::after,
-.tip:hover::before { opacity: 1; }
