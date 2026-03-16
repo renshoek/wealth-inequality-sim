@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wealth Inequality Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+
+  <!-- HEADER -->
+  <header>
+    <div class="header-left">
+      <h1>Wealth Inequality</h1>
+      <p class="sub">agent-based economic simulation · generational</p>
+    </div>
+    <div class="header-right">
+      <div class="stat-pill" id="pill-gini"><span class="pill-label">Gini</span><span class="pill-value" id="val-gini">—</span></div>
+      <div class="stat-pill"><span class="pill-label">Sim time</span><span class="pill-value" id="val-round">0</span></div>
+      <div class="stat-pill"><span class="pill-label">Top 10%</span><span class="pill-value" id="val-top10">—</span></div>
+      <div class="stat-pill"><span class="pill-label">Bankrupt</span><span class="pill-value" id="val-bankrupt">0</span></div>
+      <div class="stat-pill"><span class="pill-label">Deaths</span><span class="pill-value" id="val-deaths">0</span></div>
+      <div class="stat-pill" id="pill-recession" style="display:none"><span class="pill-label">⚡ Recession</span><span class="pill-value" style="color:#e85050;font-size:11px">active</span></div>
+    </div>
+  </header>
+
+  <!-- PERSISTENT CTRL BAR -->
+  <div class="ctrl-bar">
+    <div id="startBlock"><button class="start-btn-sm" onclick="startSim()">▶ Start</button></div>
+    <div id="simControls" style="display:none;gap:6px;align-items:center">
+      <button class="btn-play ctrl-btn" onclick="togglePlay()">⏸ Pause</button>
+      <button class="ctrl-btn" onclick="reset()">↺ Reset</button>
+      <button class="ctrl-btn" onclick="triggerRecession()" data-tip="Instantly trigger a recession: all agents lose 20–40% of wealth, followed by slow erosion for ~80 rounds.">⚡ Shock</button>
+    </div>
+    <div class="ctrl-bar-sep"></div>
+    <div class="ctrl-bar-group"><label>Speed</label>
+      <select id="sel-speed">
+        <option value="200">Slow</option>
+        <option value="60" selected>Normal</option>
+        <option value="16">Fast</option>
+        <option value="0">Max</option>
+      </select>
+    </div>
+    <div class="ctrl-bar-sep"></div>
+    <button class="ctrl-btn" onclick="resetParams()">↺ Defaults</button>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" data-tab="sim"    onclick="switchTab('sim')">Simulation</button>
+    <button class="tab"        data-tab="agents" onclick="switchTab('agents')">Agents</button>
+    <button class="tab"        data-tab="log"    onclick="switchTab('log')">Trade log</button>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main-area">
+
+    <!-- ═══ SIMULATION ═══ -->
+    <div class="tab-panel active" id="panel-sim">
+      <div class="sim-layout">
+
+        <!-- LEFT: charts -->
+        <section class="canvas-section">
+          <div class="canvas-label">wealth distribution · color = tier · fades near death · click to inspect</div>
+          <canvas id="barCanvas"></canvas>
+          <div class="canvas-label" style="margin-top:10px">lorenz curve · gap = inequality</div>
+          <canvas id="lorenzCanvas"></canvas>
+        </section>
+
+        <!-- MIDDLE: economy info -->
+        <section class="middle-section">
+          <div class="canvas-label">gini over time</div>
+          <canvas id="giniCanvas"></canvas>
+          <div class="canvas-label" style="margin-top:10px">economy</div>
+          <canvas id="economyCanvas"></canvas>
+        </section>
+
+        <!-- RIGHT: controls — outer has overflow:visible so tooltips escape -->
+        <aside class="controls">
+          <div class="controls-inner">
+
+            <div class="section-title">Population</div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Agents <span class="tip" data-tip="Total number of people in the simulation. More agents = smoother patterns but slower simulation.">?</span></label>
+                <span class="val" id="disp-agents">250</span>
+              </div>
+              <input type="range" id="sl-agents" min="10" max="400" value="250" step="10">
+            </div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Starting wealth <span class="tip" data-tip="How much money each normal agent begins with. Acts as the baseline unit — all other wealth values scale from this.">?</span></label>
+                <span class="val" id="disp-start">100</span>
+              </div>
+              <input type="range" id="sl-start" min="10" max="500" value="100" step="10">
+            </div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Trades / round <span class="tip" data-tip="How many random trades happen each simulation step. Higher = faster wealth concentration. Think of it as economic activity per time unit.">?</span></label>
+                <span class="val" id="disp-trades">10</span>
+              </div>
+              <input type="range" id="sl-trades" min="1" max="200" value="10" step="1">
+            </div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Max bet % <span class="tip" data-tip="The maximum fraction of the poorer agent's wealth that can change hands in a single trade. 50% means each trade can move at most half of the loser's money.">?</span></label>
+                <span class="val" id="disp-maxbet">50</span>
+              </div>
+              <input type="range" id="sl-maxbet" min="1" max="100" value="50" step="1">
+            </div>
+
+            <div class="divider"></div>
+            <div class="section-title">Timeline</div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>1 round = <span class="tip" data-tip="Sets the pace of simulated time. 1 day = 365 rounds per year. Affects how fast agents age and die. Use 'month' to watch multiple generations quickly.">?</span></label>
+                <select id="sel-timeunit">
+                  <option value="day">1 day (365/yr)</option>
+                  <option value="week" selected>1 week (52/yr)</option>
+                  <option value="month">1 month (12/yr)</option>
+                </select>
+              </div>
+              <div class="hint">agents start aged 20–40 · live to 70–95 years</div>
+            </div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Mortality after 40 <span class="tip" data-tip="Adds a random chance of dying each year once an agent turns 40. At 1%, roughly 1 in 100 agents die per year from that age onwards. Set to 0 to disable.">?</span></label>
+                <span class="val" id="disp-mortality">0</span>%/yr
+              </div>
+              <input type="range" id="sl-mortality" min="0" max="1" value="0" step="0.05">
+            </div>
+
+            <div class="divider"></div>
+            <div class="section-title">
+              Skill tiers &amp; win rates
+              <span class="tip" data-tip="Agents are split into groups with different advantages. Poor agents start with less wealth. Skilled and Elite agents win more trades. Normal tier auto-adjusts to keep total at 100%.">?</span>
+            </div>
+            <div class="hint" style="margin-bottom:6px">Normal auto-adjusts · win rate = chance of winning a trade</div>
+
+            <!-- 3-column tier grid: name | % | win rate -->
+            <div class="tier-grid">
+              <div class="tier-header">
+                <span></span>
+                <span class="hint">% <span class="tip" data-tip="What percentage of agents start in this tier.">?</span></span>
+                <span class="hint">win % <span class="tip" data-tip="Probability of winning a trade against an equal opponent. 50% = pure luck. 53% = slight advantage.">?</span></span>
+              </div>
+              <div class="tier-row">
+                <span class="tier-name tier-poor">Poor</span>
+                <input type="number" class="tier-inp" id="tier-poor" value="0" min="0" max="100">
+                <div class="wr-cell">
+                  <input type="range" id="wr-poor" min="30" max="70" value="48" step="1">
+                  <span class="val-sm" id="disp-wr-poor">48%</span>
+                </div>
+              </div>
+              <div class="tier-row">
+                <span class="tier-name tier-normal">Normal</span>
+                <input type="number" class="tier-inp" id="tier-normal" value="100" min="0" max="100">
+                <div class="wr-cell">
+                  <input type="range" id="wr-normal" min="30" max="70" value="50" step="1">
+                  <span class="val-sm" id="disp-wr-normal">50%</span>
+                </div>
+              </div>
+              <div class="tier-row">
+                <span class="tier-name tier-skilled">Skilled</span>
+                <input type="number" class="tier-inp" id="tier-skilled" value="0" min="0" max="100">
+                <div class="wr-cell">
+                  <input type="range" id="wr-skilled" min="30" max="70" value="51" step="1">
+                  <span class="val-sm" id="disp-wr-skilled">51%</span>
+                </div>
+              </div>
+              <div class="tier-row">
+                <span class="tier-name tier-elite">Elite</span>
+                <input type="number" class="tier-inp" id="tier-elite" value="0" min="0" max="100">
+                <div class="wr-cell">
+                  <input type="range" id="wr-elite" min="30" max="70" value="53" step="1">
+                  <span class="val-sm" id="disp-wr-elite">53%</span>
+                </div>
+              </div>
+            </div>
+            <div id="tier-warn" class="hint" style="color:#e85050;display:none">⚠ Tiers must sum to 100%</div>
+
+            <div class="divider"></div>
+            <div class="section-title">Tax &amp; redistribution</div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Tax system <span class="tip" data-tip="Flat: everyone pays the same % regardless of wealth. Brackets: richer agents pay higher rates (like real income tax). None: no tax collected.">?</span></label>
+                <select id="sel-taxmode">
+                  <option value="flat">Flat</option>
+                  <option value="bracket">Brackets</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="flat-tax-ctrl" class="control-group">
+              <div class="control-row">
+                <label>Tax rate % <span class="tip" data-tip="Each round, every agent pays this percentage of their wealth into the tax pool. 10% on 200 wealth = 20 per round.">?</span></label>
+                <span class="val accent" id="disp-tax">0</span>
+              </div>
+              <input type="range" id="sl-tax" min="0" max="80" value="0" step="1">
+            </div>
+
+            <div id="bracket-tax-ctrl" style="display:none">
+              <div class="hint" style="margin-bottom:4px">Tax rate per wealth bracket <span class="tip" data-tip="Progressive tax: agents only pay the higher rate on the portion of wealth above each threshold — just like real income tax brackets.">?</span></div>
+              <div class="bracket-row"><span class="hint">0–50</span><input type="number" class="bracket-inp" id="br-1" value="0"><span class="hint">%</span></div>
+              <div class="bracket-row"><span class="hint">50–200</span><input type="number" class="bracket-inp" id="br-2" value="10"><span class="hint">%</span></div>
+              <div class="bracket-row"><span class="hint">200–500</span><input type="number" class="bracket-inp" id="br-3" value="25"><span class="hint">%</span></div>
+              <div class="bracket-row"><span class="hint">&gt;500</span><input type="number" class="bracket-inp" id="br-4" value="45"><span class="hint">%</span></div>
+            </div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Redistribution % <span class="tip" data-tip="Each round, this % of the tax pool is paid back out to agents. 100% = government spends everything collected. 0% = tax disappears. The pool can go negative (government debt).">?</span></label>
+                <span class="val accent" id="disp-redist">50</span>
+              </div>
+              <input type="range" id="sl-redist" min="0" max="100" value="50" step="1">
+              <div class="hint">tax pool can go negative (government debt)</div>
+            </div>
+
+            <!-- Redistribution weights — right under redistribution -->
+            <div class="rw-section">
+              <div class="hint" style="margin-bottom:5px">Redistribution share per tier <span class="tip" data-tip="Controls how much of the redistributed money each tier receives. 1.5× means that tier gets 50% more than the baseline share. 0.4× = less. Use this to model targeted welfare or regressive spending.">?</span></div>
+              <div class="rw-rows">
+                <div class="rw-row">
+                  <span class="tier-name tier-poor" style="font-size:10px">Poor</span>
+                  <input type="range" id="rw-poor" min="0" max="3" value="1.5" step="0.1">
+                  <span class="val-sm" id="disp-rw-poor">1.5×</span>
+                </div>
+                <div class="rw-row">
+                  <span class="tier-name tier-normal" style="font-size:10px">Normal</span>
+                  <input type="range" id="rw-normal" min="0" max="3" value="1.0" step="0.1">
+                  <span class="val-sm" id="disp-rw-normal">1.0×</span>
+                </div>
+                <div class="rw-row">
+                  <span class="tier-name tier-skilled" style="font-size:10px">Skilled</span>
+                  <input type="range" id="rw-skilled" min="0" max="3" value="0.7" step="0.1">
+                  <span class="val-sm" id="disp-rw-skilled">0.7×</span>
+                </div>
+                <div class="rw-row">
+                  <span class="tier-name tier-elite" style="font-size:10px">Elite</span>
+                  <input type="range" id="rw-elite" min="0" max="3" value="0.4" step="0.1">
+                  <span class="val-sm" id="disp-rw-elite">0.4×</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="section-title">Inheritance &amp; bankruptcy</div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Child inherits % <span class="tip" data-tip="When an agent dies naturally, their child (next generation) receives this fraction of their wealth. The rest goes to the tax pool — like estate tax.">?</span></label>
+                <span class="val accent" id="disp-inherit">90</span>
+              </div>
+              <input type="range" id="sl-inherit" min="0" max="100" value="90" step="5">
+              <div class="hint">remainder → tax pool as estate tax</div>
+            </div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Bankruptcy payout <span class="tip" data-tip="When an agent's wealth drops near zero, they receive this amount from the tax pool — like a welfare payment. The agent does not die. If the pool is empty, it goes into debt.">?</span></label>
+                <span class="val accent" id="disp-bankruptcy">10</span>
+              </div>
+              <input type="range" id="sl-bankruptcy" min="1" max="100" value="10" step="1">
+              <div class="hint">drawn from tax pool · pool can go negative</div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="section-title">Other forces</div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Luck % <span class="tip" data-tip="Adds random wealth shocks each round — some agents randomly gain or lose a small fraction. Simulates unexpected life events like medical bills or lottery wins.">?</span></label>
+                <span class="val" id="disp-luck">0</span>
+              </div>
+              <input type="range" id="sl-luck" min="0" max="100" value="0" step="1">
+            </div>
+
+            <div class="control-group">
+              <div class="control-row">
+                <label>Recession chance % <span class="tip" data-tip="Every 100 rounds there is this % chance of a recession: all agents instantly lose 20–40% of wealth, followed by slow erosion for ~80 rounds. Use ⚡ Shock to trigger manually.">?</span></label>
+                <span class="val" id="disp-recession">0</span>
+              </div>
+              <input type="range" id="sl-recession" min="0" max="20" value="0" step="1">
+              <div class="hint">% per 100 rounds · or ⚡ Shock in toolbar</div>
+            </div>
+
+          </div><!-- end controls-inner -->
+        </aside>
+      </div>
+    </div>
+
+    <!-- ═══ AGENTS ═══ -->
+    <div class="tab-panel" id="panel-agents">
+      <div class="agents-toolbar">
+        <div class="view-toggle">
+          <button id="btn-view-cards" class="view-btn active" onclick="setAgentsView('cards')">⊞ Cards</button>
+          <button id="btn-view-table" class="view-btn" onclick="setAgentsView('table')">≡ Table</button>
+        </div>
+        <div class="sort-row">
+          <label class="hint">Sort by</label>
+          <select id="sel-sort" onchange="setAgentsSort(this.value)">
+            <option value="wealth">Wealth</option>
+            <option value="name">Name</option>
+            <option value="age">Age</option>
+            <option value="winrate">Win rate</option>
+            <option value="generation">Generation</option>
+            <option value="bankruptcies">Bankruptcies</option>
+          </select>
+        </div>
+      </div>
+      <div class="agents-layout">
+        <div id="agents-card-wrap"  class="agents-card-wrap"></div>
+        <div id="agents-table-wrap" class="agents-table-wrap" style="display:none">
+          <table class="agents-table">
+            <thead><tr>
+              <th>#</th><th>Name</th><th>Tier</th><th>Wealth</th><th>% total</th>
+              <th>Age</th><th>Lifespan</th><th>Won</th><th>Lost</th><th>Win %</th>
+              <th>Bankrupt</th><th>Gen</th>
+            </tr></thead>
+            <tbody id="agentsBody"></tbody>
+          </table>
+        </div>
+        <div class="agent-detail">
+          <div class="detail-placeholder" id="detail-placeholder">Click an agent to inspect</div>
+          <canvas id="inspectorChart" width="272" height="80" style="width:272px;height:80px;display:none"></canvas>
+          <div id="inspectorStats" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ LOG ═══ -->
+    <div class="tab-panel" id="panel-log">
+      <div class="log-controls">
+        <input type="text" id="log-filter" placeholder="Filter by name or agent ID...">
+        <button onclick="clearLog()">Clear</button>
+        <span class="hint" id="log-count"></span>
+      </div>
+      <div class="log-wrap">
+        <table class="log-table">
+          <thead><tr><th>Round</th><th>Agent A</th><th>Agent B</th><th>Stake</th><th>Winner</th><th>A after</th><th>B after</th></tr></thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FLOATING INSPECTOR -->
+  <div id="inspector" class="inspector" style="display:none">
+    <div class="inspector-header">
+      <span id="inspector-title">Agent</span>
+      <button onclick="closeInspector()">✕</button>
+    </div>
+    <canvas id="inspectorChartFloat" width="272" height="80" style="width:272px;height:80px;display:block"></canvas>
+    <div id="inspectorStatsFloat"></div>
+  </div>
+
+</div>
+<script src="agents.js"></script>
+<script src="engine.js"></script>
+<script src="canvas.js"></script>
+<script src="ui.js"></script>
+<script src="sim.js"></script>
+</body>
+</html>
