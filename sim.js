@@ -25,10 +25,10 @@ const DEFAULTS = {
   startWealth:      100,
   trades:           10,
   maxbet:           50,
-  taxMode:          'flat',
+  taxMode:          'wealth-flat',
   flatTax:          0,
   brackets:         [0, 10, 25, 45],
-  redist:           50,
+  redist:           1,
   luck:             0,
   inheritPct:       90,
   bankruptcyPayout: 10,
@@ -232,8 +232,8 @@ function syncAllControls() {
   document.getElementById('sel-speed').value    = p.speed;
   document.getElementById('sel-timeunit').value = p.timeUnit;
   document.getElementById('sel-taxmode').value  = p.taxMode;
-  document.getElementById('flat-tax-ctrl').style.display    = p.taxMode === 'flat'    ? '' : 'none';
-  document.getElementById('bracket-tax-ctrl').style.display = p.taxMode === 'bracket' ? '' : 'none';
+  document.getElementById('flat-tax-ctrl').style.display    = (p.taxMode === 'wealth-flat'    || p.taxMode === 'income-flat')    ? '' : 'none';
+  document.getElementById('bracket-tax-ctrl').style.display = (p.taxMode === 'wealth-bracket' || p.taxMode === 'income-bracket') ? '' : 'none';
 
   p.brackets.forEach((v, i) => { const el = document.getElementById(`br-${i+1}`); if (el) el.value = v; });
 
@@ -296,8 +296,10 @@ document.getElementById('sel-timeunit').addEventListener('change', e => { p.time
 
 document.getElementById('sel-taxmode').addEventListener('change', e => {
   p.taxMode = e.target.value;
-  document.getElementById('flat-tax-ctrl').style.display    = e.target.value === 'flat'    ? '' : 'none';
-  document.getElementById('bracket-tax-ctrl').style.display = e.target.value === 'bracket' ? '' : 'none';
+  const isFlat    = e.target.value === 'wealth-flat'    || e.target.value === 'income-flat';
+  const isBracket = e.target.value === 'wealth-bracket' || e.target.value === 'income-bracket';
+  document.getElementById('flat-tax-ctrl').style.display    = isFlat    ? '' : 'none';
+  document.getElementById('bracket-tax-ctrl').style.display = isBracket ? '' : 'none';
 });
 
 ['br-1','br-2','br-3','br-4'].forEach((id, i) => {

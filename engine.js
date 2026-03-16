@@ -3,9 +3,12 @@
 // ENGINE — one simulation step
 // ─────────────────────────────────────────────────
 
-function calcTax(wealth, taxMode, flatRate, brackets) {
+// amount  = wealth (for wealth-*) or trade gain (for income-*)
+function calcTax(amount, taxMode, flatRate, brackets) {
   if (taxMode === 'none') return 0;
-  if (taxMode === 'flat') return wealth * (flatRate / 100);
+  if (taxMode === 'wealth-flat' || taxMode === 'income-flat')
+    return amount * (flatRate / 100);
+  // bracket (wealth-bracket or income-bracket)
   const thresholds = [
     { from: 0,   to: 50,   rate: brackets[0] / 100 },
     { from: 50,  to: 200,  rate: brackets[1] / 100 },
@@ -14,8 +17,8 @@ function calcTax(wealth, taxMode, flatRate, brackets) {
   ];
   let tax = 0;
   for (const b of thresholds) {
-    if (wealth <= b.from) break;
-    tax += (Math.min(wealth, b.to) - b.from) * b.rate;
+    if (amount <= b.from) break;
+    tax += (Math.min(amount, b.to) - b.from) * b.rate;
   }
   return tax;
 }
@@ -55,8 +58,24 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     const aWinProb = (aWin + (1 - bWin)) / 2;
     const aWins = Math.random() < aWinProb;
 
-    if (aWins) { a.wealth += stake; b.wealth -= stake; a.tradesWon++; b.tradesLost++; }
-    else        { a.wealth -= stake; b.wealth += stake; b.tradesWon++; a.tradesLost++; }
+    if (aWins) {
+      a.wealth += stake; b.wealth -= stake; a.tradesWon++; b.tradesLost++;
+      // Income tax: deduct from winner's gain at source
+      if (taxMode === 'income-flat' || taxMode === 'income-bracket') {
+        const t = calcTax(stake, taxMode, flatTax, brackets);
+        const paid = Math.min(t, a.wealth);
+        a.wealth -= paid;
+        taxPool.amount += paid;
+      }
+    } else {
+      a.wealth -= stake; b.wealth += stake; b.tradesWon++; a.tradesLost++;
+      if (taxMode === 'income-flat' || taxMode === 'income-bracket') {
+        const t = calcTax(stake, taxMode, flatTax, brackets);
+        const paid = Math.min(t, b.wealth);
+        b.wealth -= paid;
+        taxPool.amount += paid;
+      }
+    }
 
     if (a.wealth < 0) a.wealth = 0;
     if (b.wealth < 0) b.wealth = 0;
@@ -85,8 +104,8 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     if (recessionState.roundsLeft <= 0) recessionState.active = false;
   }
 
-  // ── 4. Tax → pool ──
-  if (taxMode !== 'none') {
+  // ── 4. Wealth tax → pool (per-round sweep on total wealth) ──
+  if (taxMode === 'wealth-flat' || taxMode === 'wealth-bracket') {
     for (const ag of alive) {
       const t = calcTax(ag.wealth, taxMode, flatTax, brackets);
       ag.wealth = Math.max(0, ag.wealth - t);

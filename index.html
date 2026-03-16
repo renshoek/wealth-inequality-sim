@@ -193,10 +193,12 @@
 
             <div class="control-group">
               <div class="control-row">
-                <label>Tax system <span class="tip" data-tip="Flat: everyone pays the same % regardless of wealth. Brackets: richer agents pay higher rates (like real income tax). None: no tax collected.">?</span></label>
+                <label>Tax system <span class="tip" data-tip="Wealth: every round each agent pays a % of their total wealth. Income: the winner of each trade pays a % of their gain at the moment of the trade. Brackets applies progressive rates in both cases.">?</span></label>
                 <select id="sel-taxmode">
-                  <option value="flat">Flat</option>
-                  <option value="bracket">Brackets</option>
+                  <option value="wealth-flat">Wealth – Flat</option>
+                  <option value="wealth-bracket">Wealth – Brackets</option>
+                  <option value="income-flat">Income – Flat</option>
+                  <option value="income-bracket">Income – Brackets</option>
                   <option value="none">None</option>
                 </select>
               </div>
@@ -211,7 +213,7 @@
             </div>
 
             <div id="bracket-tax-ctrl" style="display:none">
-              <div class="hint" style="margin-bottom:4px">Tax rate per wealth bracket <span class="tip" data-tip="Progressive tax: agents only pay the higher rate on the portion of wealth above each threshold — just like real income tax brackets.">?</span></div>
+              <div class="hint" style="margin-bottom:4px">Rate per bracket — wealth total or per-trade gain <span class="tip" data-tip="For wealth tax: brackets apply to the agent's total wealth each round. For income tax: brackets apply to the gain from each individual trade. Thresholds are the same; adjust rates to taste.">?</span></div>
               <div class="bracket-row"><span class="hint">0–50</span><input type="number" class="bracket-inp" id="br-1" value="0"><span class="hint">%</span></div>
               <div class="bracket-row"><span class="hint">50–200</span><input type="number" class="bracket-inp" id="br-2" value="10"><span class="hint">%</span></div>
               <div class="bracket-row"><span class="hint">200–500</span><input type="number" class="bracket-inp" id="br-3" value="25"><span class="hint">%</span></div>
