@@ -110,9 +110,11 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
   }
 
   // ── 6. Bankruptcy check — pull from tax pool, don't die ──
+  let bankruptciesThisStep = 0;
   for (const ag of alive) {
     if (ag.wealth < 0.1) {
       resolveBankruptcy(ag, taxPool, bankruptcyPayout, baseWealth);
+      bankruptciesThisStep++;
     }
   }
 
@@ -123,6 +125,8 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
       if (ag.history.length > 200) ag.history.shift();
     }
   }
+
+  return { bankruptciesThisStep };
 }
 
 function applyRecessionShock(agents, recessionState) {

@@ -8,7 +8,7 @@ let agentsView = 'cards';
 let agentsSort = 'wealth'; // 'wealth'|'name'|'age'|'winrate'|'generation'|'bankruptcies'
 
 // ── HEADER ──
-function updateHeader(agents, round, roundsPerYear, totalDeaths) {
+function updateHeader(agents, round, roundsPerYear, totalDeaths, totalBankruptcies) {
   const now = Date.now();
   if (now - uiThrottle < 80) return;
   uiThrottle = now;
@@ -19,7 +19,7 @@ function updateHeader(agents, round, roundsPerYear, totalDeaths) {
   const total  = vals.reduce((s, v) => s + v, 0);
   const sorted = [...vals].sort((a, b) => b - a);
   const top10  = sorted.slice(0, Math.ceil(alive.length * 0.1)).reduce((s, v) => s + v, 0);
-  const bankruptTotal = agents.reduce((s, a) => s + a.bankruptcies, 0);
+  const bankruptTotal = totalBankruptcies ?? agents.reduce((s, a) => s + a.bankruptcies, 0);
   const simYears = (round / roundsPerYear).toFixed(1);
 
   document.getElementById('val-gini').textContent     = g.toFixed(2);

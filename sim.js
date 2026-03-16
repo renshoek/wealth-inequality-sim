@@ -6,7 +6,8 @@
 let agents       = [];
 let tradeLog     = [];
 let round        = 0;
-let totalDeaths  = 0;
+let totalDeaths        = 0;
+let totalBankruptcies  = 0;
 let playing      = false;
 let started      = false;
 let rafId        = null;
@@ -51,7 +52,8 @@ function init() {
   agents         = buildInitialAgents(p.agentCount, p.startWealth, p.tiers);
   tradeLog       = [];
   round          = 0;
-  totalDeaths    = 0;
+  totalDeaths        = 0;
+  totalBankruptcies  = 0;
   taxPool.amount = 0;
   giniHistory    = [];
   taxPoolHistory = [];
@@ -60,13 +62,13 @@ function init() {
   inspectedId    = null;
   closeInspector();
   redraw();
-  updateHeader(agents, round, roundsPerYear(), totalDeaths);
+  updateHeader(agents, round, roundsPerYear(), totalDeaths, totalBankruptcies);
 }
 
 // ── STEP ──
 function step() {
   const rpy = roundsPerYear();
-  runStep(agents, {
+  const stepResult = runStep(agents, {
     trades: p.trades, maxbet: p.maxbet,
     taxMode: p.taxMode, flatTax: p.flatTax, brackets: p.brackets,
     redist: p.redist, luck: p.luck,
@@ -76,6 +78,7 @@ function step() {
     baseWealth: p.startWealth,
     round, roundsPerYear: rpy,
   }, tradeLog, recessionState, taxPool);
+  if (stepResult) totalBankruptcies += stepResult.bankruptciesThisStep;
 
   // Natural death + random mortality
   const dead = tickLifespans(agents, rpy, p.mortalityRate);
@@ -119,8 +122,7 @@ function redraw() {
   drawLineChart(gc, [
     { values: giniHistory, color: '#e85050', width: 1.5, label: 'Gini' }
   ], { minY: 0, maxY: 1, yDecimals: 2, xLabel: '← last 300 snapshots' });
-  const bankruptTotal = agents.reduce((s, a) => s + a.bankruptcies, 0);
-  drawEconomy(ec, agents, taxPool, totalDeaths, bankruptTotal);
+  drawEconomy(ec, agents, taxPool, totalDeaths, totalBankruptcies);
 }
 window._redraw = redraw;
 
@@ -130,7 +132,7 @@ function loop(ts) {
   if (ts - lastFrame >= interval) {
     step();
     redraw();
-    updateHeader(agents, round, roundsPerYear(), totalDeaths);
+    updateHeader(agents, round, roundsPerYear(), totalDeaths, totalBankruptcies);
     const active = document.querySelector('.tab-panel.active');
     if (active) {
       if (active.id === 'panel-agents') renderAgentsView(agents, roundsPerYear(), inspectedId);
