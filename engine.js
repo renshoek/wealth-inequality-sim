@@ -3,12 +3,12 @@
 // ENGINE — one simulation step
 // ─────────────────────────────────────────────────
 
-// amount  = wealth (for wealth-*) or trade gain (for income-*)
+// Used only for flat and income-bracket modes
 function calcTax(amount, taxMode, flatRate, brackets) {
   if (taxMode === 'none') return 0;
   if (taxMode === 'wealth-flat' || taxMode === 'income-flat')
     return amount * (flatRate / 100);
-  // bracket (wealth-bracket or income-bracket)
+  // income-bracket: fixed gain thresholds (0-50, 50-200, 200-500, >500)
   const thresholds = [
     { from: 0,   to: 50,   rate: brackets[0] / 100 },
     { from: 50,  to: 200,  rate: brackets[1] / 100 },
@@ -27,22 +27,95 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
   const {
     trades, maxbet, taxMode, flatTax, brackets,
     redist, luck, baseWealth,
-    winRates,          // { poor, normal, skilled, elite } — absolute % (e.g. 50)
-    redistWeights,     // { poor, normal, skilled, elite } — multiplier for redistrib share
+    winRates,
+    redistWeights,
     bankruptcyPayout,
+    moneyPrint,
     round, roundsPerYear,
+    yearChanged,
+    redistPending,
   } = params;
 
   const alive = agents.filter(a => a.alive);
   const n = alive.length;
-  if (!n) return;
+  if (!n) return { bankruptciesThisStep: 0 };
 
-  // ── 1. Trades ──
+  // ── 0. Money printing — every 10 rounds ──
+  if (moneyPrint > 0 && round > 0 && round % 10 === 0) {
+    taxPool.amount += moneyPrint;
+  }
+
+  // ── 1. Annual luck — fires on year rollover ──
+  if (luck > 0 && yearChanged) {
+    const lf = luck / 100;
+    for (const ag of alive)
+      ag.wealth = Math.max(0, ag.wealth + (Math.random() * 2 - 1) * ag.wealth * lf);
+  }
+
+  // ── 2. Annual wealth tax — fires on year rollover ──
+  if (yearChanged && (taxMode === 'wealth-flat' || taxMode === 'wealth-bracket')) {
+    if (taxMode === 'wealth-flat') {
+      for (const ag of alive) {
+        const tax = ag.wealth * (flatTax / 100);
+        ag.wealth = Math.max(0, ag.wealth - tax);
+        taxPool.amount += tax;
+      }
+    } else {
+      // wealth-bracket: quartile thresholds computed from current distribution
+      const sorted = [...alive].map(a => a.wealth).sort((a, b) => a - b);
+      const len    = sorted.length;
+      const q25    = sorted[Math.max(0, Math.ceil(len * 0.25) - 1)] ?? 0;
+      const q50    = sorted[Math.max(0, Math.ceil(len * 0.50) - 1)] ?? 0;
+      const q75    = sorted[Math.max(0, Math.ceil(len * 0.75) - 1)] ?? 0;
+      for (const ag of alive) {
+        let rate;
+        if      (ag.wealth <= q25) rate = brackets[0] / 100;
+        else if (ag.wealth <= q50) rate = brackets[1] / 100;
+        else if (ag.wealth <= q75) rate = brackets[2] / 100;
+        else                        rate = brackets[3] / 100;
+        const tax = ag.wealth * rate;
+        ag.wealth = Math.max(0, ag.wealth - tax);
+        taxPool.amount += tax;
+      }
+    }
+  }
+
+  // ── 3. Annual redistribution — one round after tax ──
+  if (redistPending && redist > 0 && taxPool.amount > 0) {
+    const redistAmt = taxPool.amount * (redist / 100);
+    taxPool.amount -= redistAmt;
+
+    const sorted4 = [...alive].sort((a, b) => a.wealth - b.wealth);
+    const cnt = sorted4.length;
+    const q = [
+      sorted4.slice(0,                     Math.ceil(cnt * 0.25)),
+      sorted4.slice(Math.ceil(cnt * 0.25), Math.ceil(cnt * 0.50)),
+      sorted4.slice(Math.ceil(cnt * 0.50), Math.ceil(cnt * 0.75)),
+      sorted4.slice(Math.ceil(cnt * 0.75)),
+    ];
+    const qKeys = ['q1', 'q2', 'q3', 'q4'];
+    const totalWeight = qKeys.reduce((s, k) => s + (redistWeights[k] ?? 1), 0);
+    if (totalWeight > 0) {
+      for (let i = 0; i < 4; i++) {
+        const bracket  = q[i];
+        if (!bracket.length) continue;
+        const share    = (redistWeights[qKeys[i]] ?? 1) / totalWeight;
+        const perAgent = (share * redistAmt) / bracket.length;
+        for (const ag of bracket) ag.wealth += perAgent;
+      }
+    }
+  }
+
+  // ── 4. Trades — recession drops volume to 25% ──
+  const activeTrades = recessionState.active
+    ? Math.max(1, Math.round(trades * 0.25))
+    : trades;
+
   const pool = [];
   for (const ag of alive)
     for (let k = 0; k < ag.tier.tradeBonus; k++) pool.push(ag);
 
-  for (let t = 0; t < trades; t++) {
+  for (let t = 0; t < activeTrades; t++) {
     const a = pool[Math.floor(Math.random() * pool.length)];
     const b = pool[Math.floor(Math.random() * pool.length)];
     if (!a || !b || a === b) continue;
@@ -52,28 +125,22 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     const stake = Math.random() * poorer * (maxbet / 100);
     if (stake < 0.001) continue;
 
-    // Win prob: average of a's win rate and (1 - b's win rate)
-    const aWin = winRates[a.tier.name] / 100;
-    const bWin = winRates[b.tier.name] / 100;
-    const aWinProb = (aWin + (1 - bWin)) / 2;
-    const aWins = Math.random() < aWinProb;
+    const aWinProb = (winRates[a.tier.name] / 100 + (1 - winRates[b.tier.name] / 100)) / 2;
+    const aWins    = Math.random() < aWinProb;
 
     if (aWins) {
       a.wealth += stake; b.wealth -= stake; a.tradesWon++; b.tradesLost++;
-      // Income tax: deduct from winner's gain at source
       if (taxMode === 'income-flat' || taxMode === 'income-bracket') {
-        const t = calcTax(stake, taxMode, flatTax, brackets);
-        const paid = Math.min(t, a.wealth);
-        a.wealth -= paid;
-        taxPool.amount += paid;
+        const tx   = calcTax(stake, taxMode, flatTax, brackets);
+        const paid = Math.min(tx, a.wealth);
+        a.wealth -= paid; taxPool.amount += paid;
       }
     } else {
       a.wealth -= stake; b.wealth += stake; b.tradesWon++; a.tradesLost++;
       if (taxMode === 'income-flat' || taxMode === 'income-bracket') {
-        const t = calcTax(stake, taxMode, flatTax, brackets);
-        const paid = Math.min(t, b.wealth);
-        b.wealth -= paid;
-        taxPool.amount += paid;
+        const tx   = calcTax(stake, taxMode, flatTax, brackets);
+        const paid = Math.min(tx, b.wealth);
+        b.wealth -= paid; taxPool.amount += paid;
       }
     }
 
@@ -90,45 +157,18 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     }
   }
 
-  // ── 2. Luck ──
-  if (luck > 0) {
-    const lf = luck / 100 * 0.05;
-    for (const ag of alive)
-      ag.wealth = Math.max(0, ag.wealth + (Math.random() * 2 - 1) * ag.wealth * lf);
-  }
-
-  // ── 3. Recession erosion ──
+  // ── 5. Recession erosion — routes lost wealth to tax pool ──
   if (recessionState.active) {
-    for (const ag of alive) ag.wealth *= 0.997;
+    for (const ag of alive) {
+      const erosion   = ag.wealth * 0.003;
+      ag.wealth      -= erosion;
+      taxPool.amount += erosion;
+    }
     recessionState.roundsLeft--;
     if (recessionState.roundsLeft <= 0) recessionState.active = false;
   }
 
-  // ── 4. Wealth tax → pool (per-round sweep on total wealth) ──
-  if (taxMode === 'wealth-flat' || taxMode === 'wealth-bracket') {
-    for (const ag of alive) {
-      const t = calcTax(ag.wealth, taxMode, flatTax, brackets);
-      ag.wealth = Math.max(0, ag.wealth - t);
-      taxPool.amount += t;
-    }
-  }
-
-  // ── 5. Redistribution (tier-weighted) ──
-  if (redist > 0 && taxPool.amount > 0) {
-    const redistAmt = taxPool.amount * (redist / 100);
-    taxPool.amount -= redistAmt;
-
-    // Compute weighted total
-    const totalWeight = alive.reduce((s, ag) => s + (redistWeights[ag.tier.name] ?? 1), 0);
-    if (totalWeight > 0) {
-      for (const ag of alive) {
-        const w = redistWeights[ag.tier.name] ?? 1;
-        ag.wealth += (w / totalWeight) * redistAmt;
-      }
-    }
-  }
-
-  // ── 6. Bankruptcy check — pull from tax pool, don't die ──
+  // ── 6. Bankruptcy check ──
   let bankruptciesThisStep = 0;
   for (const ag of alive) {
     if (ag.wealth < 0.1) {
@@ -148,9 +188,13 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
   return { bankruptciesThisStep };
 }
 
-function applyRecessionShock(agents, recessionState) {
+function applyRecessionShock(agents, recessionState, taxPool) {
   recessionState.active     = true;
   recessionState.roundsLeft = 80 + Math.floor(Math.random() * 60);
   const shock = 0.20 + Math.random() * 0.20;
-  for (const ag of agents.filter(a => a.alive)) ag.wealth *= (1 - shock);
+  for (const ag of agents.filter(a => a.alive)) {
+    const loss      = ag.wealth * shock;
+    ag.wealth      -= loss;
+    if (taxPool) taxPool.amount += loss;
+  }
 }

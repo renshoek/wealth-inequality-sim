@@ -36,7 +36,7 @@ function drawBars(canvas, agents, inspectedId, roundsPerYear) {
     let color;
     if      (ag.tier.name === 'elite')   color = '#e85050';
     else if (ag.tier.name === 'skilled') color = '#f0c040';
-    else if (ag.tier.name === 'poor')    color = '#4fc4a0';
+    else if (ag.tier.name === 'lower')   color = '#4fc4a0';
     else {
       const t = i / Math.max(n - 1, 1);
       color = `rgb(${Math.round(lerp(40,200,t))},${Math.round(lerp(160,100,t))},${Math.round(lerp(180,40,t))})`;
@@ -104,8 +104,6 @@ function drawLorenz(canvas, agents) {
 }
 
 // ── GENERIC LINE CHART ──
-// series: [{ values: number[], color: string, label: string }]
-// yLabel: optional suffix e.g. '%'
 function drawLineChart(canvas, series, opts = {}) {
   const d = dpr(), ctx = canvas.getContext('2d');
   const W = canvas.width / d, H = canvas.height / d;
@@ -124,7 +122,6 @@ function drawLineChart(canvas, series, opts = {}) {
   const toX = (i, len) => pad.l + (i / Math.max(len - 1, 1)) * iW;
   const toY = v => pad.t + (1 - (v - minV) / range) * iH;
 
-  // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
   const steps = 4;
   ctx.font = `9px 'DM Mono', monospace`; ctx.fillStyle = 'rgba(90,94,114,0.8)'; ctx.textAlign = 'right';
@@ -136,7 +133,6 @@ function drawLineChart(canvas, series, opts = {}) {
     ctx.fillText(lbl, pad.l - 4, y + 3);
   }
 
-  // Series lines
   for (const s of series) {
     if (!s.values.length) continue;
     ctx.beginPath();
@@ -147,15 +143,13 @@ function drawLineChart(canvas, series, opts = {}) {
     ctx.strokeStyle = s.color; ctx.lineWidth = s.width ?? 1.5; ctx.stroke();
   }
 
-  // X label
   if (opts.xLabel) {
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(90,94,114,0.5)';
     ctx.fillText(opts.xLabel, pad.l + iW / 2, H - 4);
   }
 }
 
-// ── ECONOMY PANEL (canvas) ──
-// Draws 4 stat tiles + a small tier wealth bar
+// ── ECONOMY PANEL ──
 function drawEconomy(canvas, agents, taxPool, totalDeaths, bankruptTotal) {
   const d = dpr(), ctx = canvas.getContext('2d');
   const W = canvas.width / d, H = canvas.height / d;
@@ -202,9 +196,9 @@ function drawEconomy(canvas, agents, taxPool, totalDeaths, bankruptTotal) {
   });
 
   // Tier wealth bar
-  const tierTotals = { poor: 0, normal: 0, skilled: 0, elite: 0 };
+  const tierTotals = { lower: 0, normal: 0, skilled: 0, elite: 0 };
   for (const ag of alive) tierTotals[ag.tier.name] = (tierTotals[ag.tier.name] || 0) + ag.wealth;
-  const tierColors = { poor: '#4fc4a0', normal: '#5a6080', skilled: '#f0c040', elite: '#e85050' };
+  const tierColors = { lower: '#4fc4a0', normal: '#5a6080', skilled: '#f0c040', elite: '#e85050' };
   const barY = H * 0.70, barH2 = 14, barW = W - 20;
   ctx.fillStyle = 'rgba(255,255,255,0.04)';
   ctx.fillRect(10, barY, barW, barH2);
@@ -218,7 +212,6 @@ function drawEconomy(canvas, agents, taxPool, totalDeaths, bankruptTotal) {
   ctx.fillStyle = 'rgba(90,94,114,0.7)'; ctx.font = `9px 'DM Mono', monospace`; ctx.textAlign = 'left';
   ctx.fillText('wealth by tier', 10, barY + barH2 + 12);
 
-  // Legend
   let lx = 10;
   const ly = barY + barH2 + 25;
   for (const [tier, col] of Object.entries(tierColors)) {
