@@ -150,6 +150,7 @@ function drawLineChart(canvas, series, opts = {}) {
 }
 
 // ── ECONOMY PANEL ──
+// ── ECONOMY PANEL ──
 function drawEconomy(canvas, agents, taxPool, totalDeaths, bankruptTotal) {
   const d = dpr(), ctx = canvas.getContext('2d');
   const W = canvas.width / d, H = canvas.height / d;
@@ -161,65 +162,154 @@ function drawEconomy(canvas, agents, taxPool, totalDeaths, bankruptTotal) {
   const vals   = alive.map(a => a.wealth);
   const total  = vals.reduce((s, v) => s + v, 0);
   const avg    = total / vals.length;
-  const sorted = [...vals].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  const sortedV = [...vals].sort((a, b) => a - b);
+  const median = sortedV[Math.floor(sortedV.length / 2)] ?? 0;
 
   const fmt = v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(0);
+  const pxPad = 10;
 
+  // ── 1. STAT TILES ──
   const tiles = [
     { label: 'Total wealth', value: fmt(total),     color: '#e2e4ed' },
     { label: 'Tax pool',     value: (taxPool?.amount < 0 ? '-' : '') + fmt(Math.abs(taxPool?.amount ?? 0)), color: taxPool?.amount < 0 ? '#e85050' : '#f0c040' },
     { label: 'Avg wealth',   value: fmt(avg),        color: '#8899aa' },
     { label: 'Median',       value: fmt(median),     color: '#8899aa' },
-    { label: 'Deaths',       value: String(totalDeaths), color: '#e85050' },
-    { label: 'Bankruptcies', value: String(bankruptTotal), color: '#e85050' },
+    { label: 'Deaths',       value: String(totalDeaths),      color: '#e85050' },
+    { label: 'Bankruptcies', value: String(bankruptTotal),    color: '#e85050' },
   ];
-
-  const cols = 2, rows = Math.ceil(tiles.length / cols);
-  const tw = W / cols, th = (H * 0.65) / rows;
-
-  ctx.font = `500 9px 'DM Mono', monospace`;
+  const cols = 2, tileRows = Math.ceil(tiles.length / cols);
+  const tilesH = H * 0.38;
+  const tw = W / cols, th = tilesH / tileRows;
   tiles.forEach((t, i) => {
     const col = i % cols, row = Math.floor(i / cols);
-    const tx = col * tw + tw * 0.1, ty = row * th + th * 0.18;
-
+    const tx = col * tw + tw * 0.08, ty = row * th + th * 0.1;
     ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.beginPath();
-    ctx.roundRect(tx, ty, tw * 0.8, th * 0.82, 4);
-    ctx.fill();
-
-    ctx.fillStyle = 'rgba(90,94,114,0.8)'; ctx.font = `9px 'DM Mono', monospace`;
-    ctx.textAlign = 'left';
-    ctx.fillText(t.label, tx + 7, ty + 14);
-    ctx.fillStyle = t.color; ctx.font = `500 15px 'DM Mono', monospace`;
-    ctx.fillText(t.value, tx + 7, ty + 30);
+    ctx.beginPath(); ctx.roundRect(tx, ty, tw * 0.84, th * 0.82, 4); ctx.fill();
+    ctx.fillStyle = 'rgba(90,94,114,0.8)'; ctx.font = `9px 'DM Mono', monospace`; ctx.textAlign = 'left';
+    ctx.fillText(t.label, tx + 6, ty + 13);
+    ctx.fillStyle = t.color; ctx.font = `500 14px 'DM Mono', monospace`;
+    ctx.fillText(t.value, tx + 6, ty + 28);
   });
 
-  // Tier wealth bar
+  // helper: draw a segmented horizontal bar
+  function drawSegBar(y, barH2, segments) {
+    // segments: [{ pct, color, label }]  pct = fraction of width
+    const bW = W - pxPad * 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(pxPad, y, bW, barH2);
+    let bx = pxPad;
+    for (const seg of segments) {
+      const sw = seg.pct * bW;
+      if (sw < 0.5) { bx += sw; continue; }
+      ctx.fillStyle = seg.color; ctx.fillRect(bx, y, sw, barH2);
+      // label inside if wide enough
+      if (sw > 30) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.font = `8px 'DM Mono', monospace`; ctx.textAlign = 'center';
+        ctx.fillText(seg.label, bx + sw / 2, y + barH2 - 3);
+      }
+      bx += sw;
+    }
+  }
+
+  // helper: section label
+  function sectionLabel(text, y) {
+    ctx.fillStyle = 'rgba(90,94,114,0.7)'; ctx.font = `9px 'DM Mono', monospace`; ctx.textAlign = 'left';
+    ctx.fillText(text, pxPad, y);
+  }
+
+  const barH2 = 13;
+  const gap   = 5;
+  let curY    = tilesH + 6;
+
+  // ── 2. WEALTH BY TIER ──
   const tierTotals = { lower: 0, normal: 0, skilled: 0, elite: 0 };
   for (const ag of alive) tierTotals[ag.tier.name] = (tierTotals[ag.tier.name] || 0) + ag.wealth;
   const tierColors = { lower: '#4fc4a0', normal: '#5a6080', skilled: '#f0c040', elite: '#e85050' };
-  const barY = H * 0.70, barH2 = 14, barW = W - 20;
-  ctx.fillStyle = 'rgba(255,255,255,0.04)';
-  ctx.fillRect(10, barY, barW, barH2);
-  let bx = 10;
-  for (const [tier, tv] of Object.entries(tierTotals)) {
-    const w = total > 0 ? (tv / total) * barW : 0;
-    ctx.fillStyle = tierColors[tier];
-    ctx.fillRect(bx, barY, w, barH2);
-    bx += w;
-  }
-  ctx.fillStyle = 'rgba(90,94,114,0.7)'; ctx.font = `9px 'DM Mono', monospace`; ctx.textAlign = 'left';
-  ctx.fillText('wealth by tier', 10, barY + barH2 + 12);
+  sectionLabel('wealth by tier', curY + barH2 + 1);
+  const tierSegs = Object.entries(tierTotals).map(([t, tv]) => ({
+    pct: total > 0 ? tv / total : 0, color: tierColors[t],
+    label: `${t} ${total > 0 ? ((tv/total)*100).toFixed(0) : 0}%`,
+  }));
+  drawSegBar(curY, barH2, tierSegs);
+  curY += barH2 + gap + 11;
 
-  let lx = 10;
-  const ly = barY + barH2 + 25;
-  for (const [tier, col] of Object.entries(tierColors)) {
-    ctx.fillStyle = col;
-    ctx.fillRect(lx, ly, 8, 8);
-    ctx.fillStyle = 'rgba(90,94,114,0.8)'; ctx.font = `9px 'DM Mono', monospace`;
-    ctx.fillText(tier, lx + 11, ly + 8);
-    lx += 56;
+  // tier legend (small dots)
+  let lx = pxPad;
+  for (const [t, c] of Object.entries(tierColors)) {
+    ctx.fillStyle = c; ctx.fillRect(lx, curY, 7, 7);
+    ctx.fillStyle = 'rgba(90,94,114,0.8)'; ctx.font = `9px 'DM Mono', monospace`; ctx.textAlign = 'left';
+    ctx.fillText(t, lx + 9, curY + 7);
+    lx += 54;
+  }
+  curY += 7 + gap + 4;
+
+  // ── 3. WEALTH BY PERCENTILE GROUP ──
+  // Bottom 50%, next 40% (50-90), next 9% (90-99), top 1%
+  const sortedA = [...alive].sort((a, b) => a.wealth - b.wealth);
+  const n = sortedA.length;
+  const i50  = Math.floor(n * 0.50);
+  const i90  = Math.floor(n * 0.90);
+  const i99  = Math.floor(n * 0.99);
+
+  function sumWealth(arr, from, to) {
+    return arr.slice(from, to).reduce((s, a) => s + a.wealth, 0);
+  }
+  const w50  = sumWealth(sortedA, 0,    i50);
+  const w40  = sumWealth(sortedA, i50,  i90);
+  const w9   = sumWealth(sortedA, i90,  i99);
+  const w1   = sumWealth(sortedA, i99,  n);
+
+  const pctColors = ['#4fc4a0','#5a7a8a','#f0c040','#e85050'];
+  const pctGroups = [
+    { label: `Bot 50% ${total > 0 ? ((w50/total)*100).toFixed(0) : 0}%`, w: w50, color: pctColors[0] },
+    { label: `50-90% ${total > 0 ? ((w40/total)*100).toFixed(0) : 0}%`,  w: w40, color: pctColors[1] },
+    { label: `90-99% ${total > 0 ? ((w9/total)*100).toFixed(0)  : 0}%`,  w: w9,  color: pctColors[2] },
+    { label: `Top 1% ${total > 0 ? ((w1/total)*100).toFixed(0)  : 0}%`,  w: w1,  color: pctColors[3] },
+  ];
+  sectionLabel('wealth by percentile', curY + barH2 + 1);
+  drawSegBar(curY, barH2, pctGroups.map(g => ({ pct: total > 0 ? g.w / total : 0, color: g.color, label: g.label })));
+  curY += barH2 + gap + 11;
+
+  // percentile legend
+  lx = pxPad;
+  for (const g of pctGroups) {
+    ctx.fillStyle = g.color; ctx.fillRect(lx, curY, 7, 7);
+    ctx.fillStyle = 'rgba(90,94,114,0.8)'; ctx.font = `9px 'DM Mono', monospace`; ctx.textAlign = 'left';
+    const shortLbl = g.label.split(' ')[0] + ' ' + g.label.split(' ')[1];
+    ctx.fillText(shortLbl, lx + 9, curY + 7);
+    lx += 64;
+  }
+  curY += 7 + gap + 4;
+
+  // ── 4. WEALTH BY AGE GROUP ──
+  const ageBuckets = [
+    { label: '20–35',  min: 0,  max: 35  },
+    { label: '35–50',  min: 35, max: 50  },
+    { label: '50–65',  min: 50, max: 65  },
+    { label: '65+',    min: 65, max: Infinity },
+  ];
+  const ageColors = ['#7799cc','#aa88dd','#dd9966','#cc5577'];
+  const ageTotals = ageBuckets.map(b =>
+    alive.filter(a => a.ageYears >= b.min && a.ageYears < b.max)
+         .reduce((s, a) => s + a.wealth, 0)
+  );
+  const ageTotal = ageTotals.reduce((s, v) => s + v, 0);
+
+  sectionLabel('wealth by age group', curY + barH2 + 1);
+  const ageSegs = ageBuckets.map((b, i) => ({
+    pct: ageTotal > 0 ? ageTotals[i] / ageTotal : 0,
+    color: ageColors[i],
+    label: `${b.label} ${ageTotal > 0 ? ((ageTotals[i]/ageTotal)*100).toFixed(0) : 0}%`,
+  }));
+  drawSegBar(curY, barH2, ageSegs);
+  curY += barH2 + gap + 11;
+
+  // age legend
+  lx = pxPad;
+  for (let i = 0; i < ageBuckets.length; i++) {
+    ctx.fillStyle = ageColors[i]; ctx.fillRect(lx, curY, 7, 7);
+    ctx.fillStyle = 'rgba(90,94,114,0.8)'; ctx.font = `9px 'DM Mono', monospace`; ctx.textAlign = 'left';
+    ctx.fillText(ageBuckets[i].label, lx + 9, curY + 7);
+    lx += 50;
   }
 }
 
