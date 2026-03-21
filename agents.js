@@ -156,10 +156,10 @@ function resetAgentIds() {
 }
 
 const TIER_FIXED = {
-  lower:   { tradeBonus: 1, startMult: 0.5 },
+  lower:   { tradeBonus: 1, startMult: 1.0 },
   normal:  { tradeBonus: 1, startMult: 1.0 },
   skilled: { tradeBonus: 1, startMult: 1.0 },
-  elite:   { tradeBonus: 2, startMult: 3.0 },
+  elite:   { tradeBonus: 2, startMult: 1.0 },
 };
 
 const ALL_TIERS = ['lower', 'normal', 'skilled', 'elite'];

@@ -10,7 +10,7 @@ let agentsSort = 'wealth';
 let selectedFamilySurname  = null;
 let selectedHistoryAgentId = null;
 let historyEventsReady     = false;
-let historyFamilySort      = 'generations'; // 'generations'|'wealth'|'peak'|'members'|'trend'
+let historyFamilySort      = 'wealth';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 

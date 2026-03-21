@@ -24,6 +24,14 @@ function drawBars(canvas, agents, inspectedId, roundsPerYear) {
   const alive  = agents.filter(a => a.alive);
   if (!alive.length) return;
 
+  // Ensure canvas is tall enough to show every agent at ≥ 2px per bar
+  const MIN_BAR_PX = 1;
+  const neededH = alive.length * MIN_BAR_PX;
+  if (canvas.getBoundingClientRect().height < neededH) {
+    canvas.style.height = neededH + 'px';
+    resizeCanvas(canvas);
+  }
+
   const sorted = [...alive].sort((a, b) => a.wealth - b.wealth);
   const maxW   = Math.max(...sorted.map(a => a.wealth), 1);
   const n = sorted.length;

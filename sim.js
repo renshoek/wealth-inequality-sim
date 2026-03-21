@@ -35,13 +35,13 @@ const DEFAULTS = {
   flatTax:          0,
   brackets:         [0, 10, 25, 45],
   redist:           1,
-  luck:             2,
+  luck:             1,
   inheritPct:       90,
   bankruptcyPayout: 10,
   recessionChance:  1,
   mortalityRate:    0.2,
   timeUnit:         'week',
-  speed:            60,
+  speed:            16,
   moneyPrint:       100,
   tierMobility:     false,
   tiers:         { lower: 1, normal: 97, skilled: 1, elite: 1 },
@@ -298,12 +298,12 @@ document.getElementById('barCanvas').addEventListener('click', e => {
 });
 
 // ── AGENTS TAB EVENT DELEGATION ──
-// Using delegation on stable containers so clicks work even while innerHTML is being replaced
-document.getElementById('agents-card-wrap')?.addEventListener('click', e => {
+// pointerdown fires before the next rAF loop can replace innerHTML, unlike click
+document.getElementById('agents-card-wrap')?.addEventListener('pointerdown', e => {
   const card = e.target.closest('[data-agentid]');
   if (card) window._selectAgent(+card.dataset.agentid);
 });
-document.getElementById('agentsBody')?.addEventListener('click', e => {
+document.getElementById('agentsBody')?.addEventListener('pointerdown', e => {
   const row = e.target.closest('[data-agentid]');
   if (row) window._selectAgent(+row.dataset.agentid);
 });

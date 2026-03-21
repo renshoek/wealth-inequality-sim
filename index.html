@@ -39,13 +39,14 @@
     <div class="ctrl-bar-group"><label>Speed</label>
       <select id="sel-speed">
         <option value="200">Slow</option>
-        <option value="60" selected>Normal</option>
-        <option value="16">Fast</option>
+        <option value="60">Normal</option>
+        <option value="16" selected>Fast</option>
         <option value="0">Max</option>
       </select>
     </div>
     <div class="ctrl-bar-sep"></div>
     <button class="ctrl-btn" onclick="resetParams()">↺ Defaults</button>
+    <button class="ctrl-btn mobile-only" id="btn-show-params" onclick="toggleMobileControls()">⚙ Parameters</button>
   </div>
 
   <!-- TABS -->
@@ -79,8 +80,12 @@
           <canvas id="economyCanvas"></canvas>
         </section>
 
-        <!-- RIGHT: controls -->
-        <aside class="controls">
+        <!-- RIGHT: controls (desktop sidebar / mobile drawer) -->
+        <aside class="controls" id="controls-aside">
+          <div class="drawer-header">
+            <span class="drawer-title">⚙ Parameters</span>
+            <button class="drawer-close-btn" onclick="closeDrawer()" aria-label="Close parameters">✕</button>
+          </div>
           <div class="controls-inner">
 
             <div class="section-title">Population</div>
@@ -283,9 +288,9 @@
             <div class="control-group">
               <div class="control-row">
                 <label>Luck % <span class="tip" data-tip="Once per year, each agent randomly gains or loses up to this % of their wealth. Simulates unexpected life events like medical bills or lottery wins.">?</span></label>
-                <span class="val" id="disp-luck">2</span>
+                <span class="val" id="disp-luck">1</span>
               </div>
-              <input type="range" id="sl-luck" min="0" max="100" value="2" step="1">
+              <input type="range" id="sl-luck" min="0" max="100" value="1" step="1">
               <div class="hint">applied once per year</div>
             </div>
 
@@ -387,7 +392,7 @@
             <input type="text" id="family-search" placeholder="Search family or name…" style="flex:1">
             <select id="history-sort" style="width:auto">
               <option value="generations">Generations</option>
-              <option value="wealth">Curr. wealth</option>
+              <option value="wealth" selected>Curr. wealth</option>
               <option value="peak">Peak wealth</option>
               <option value="members">Members</option>
               <option value="trend">Trend</option>
@@ -427,6 +432,9 @@
     </div>
 
   </div>
+
+  <!-- PARAMS DRAWER BACKDROP (mobile only) -->
+  <div id="params-backdrop" class="params-backdrop" onclick="closeDrawer()"></div>
 
   <!-- FLOATING INSPECTOR -->
   <div id="inspector" class="inspector" style="display:none">
@@ -474,6 +482,39 @@
     tt.style.top  = y + 'px';
   }
 })();
+</script>
+<script>
+// ── Params drawer (mobile) / sidebar (desktop) ──
+function isMobile() { return window.innerWidth <= 767; }
+
+function openDrawer() {
+  const aside    = document.getElementById('controls-aside');
+  const backdrop = document.getElementById('params-backdrop');
+  aside.classList.add('drawer-open');
+  backdrop.classList.add('active');
+  document.body.classList.add('drawer-active');
+}
+
+function closeDrawer() {
+  const aside    = document.getElementById('controls-aside');
+  const backdrop = document.getElementById('params-backdrop');
+  aside.classList.remove('drawer-open');
+  backdrop.classList.remove('active');
+  document.body.classList.remove('drawer-active');
+}
+
+function toggleMobileControls() {
+  const aside = document.getElementById('controls-aside');
+  aside.classList.contains('drawer-open') ? closeDrawer() : openDrawer();
+}
+
+// Keep desktop always-visible; close drawer when resizing to desktop
+window.addEventListener('resize', () => {
+  if (!isMobile()) {
+    document.getElementById('params-backdrop').classList.remove('active');
+    document.body.classList.remove('drawer-active');
+  }
+});
 </script>
 </body>
 </html>
