@@ -27,6 +27,18 @@ function fmtW(v) {
   return v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : (+v).toFixed(0);
 }
 
+// Color agent by wealth percentile rank among alive agents
+// bottom 50% = muted blue, 50-75% = grey-blue, 75-90% = gold, top 10% = red
+function wealthColor(agent, alive) {
+  const sorted = [...alive].sort((a, b) => a.wealth - b.wealth);
+  const idx = sorted.findIndex(a => a.id === agent.id);
+  const pct = alive.length > 1 ? idx / (alive.length - 1) : 0.5;
+  if (pct >= 0.90) return '#e85050';
+  if (pct >= 0.75) return '#f0c040';
+  if (pct >= 0.50) return '#7799bb';
+  return '#5a6e82';
+}
+
 // ── HEADER ──
 function updateHeader(agents, simDate, totalDeaths, totalBankruptcies) {
   const now = Date.now();
@@ -93,11 +105,13 @@ function renderAgentsTable(agents, roundsPerYear, inspectedId) {
     const ageY    = ag.ageYears.toFixed(1);
     const lifePct = Math.min(100, ag.ageYears / ag.lifespan * 100);
     const ageColor = lifePct > 85 ? '#e85050' : lifePct > 60 ? '#f0c040' : '#4fc4a0';
+    const col = wealthColor(ag, alive);
     const sel = ag.id === inspectedId ? ' class="selected"' : '';
     return `<tr${sel} data-agentid="${ag.id}" style="cursor:pointer">
       <td>${rank + 1}</td>
-      <td>${ag.name} ${ag.surname}</td>
-      <td class="tier-${ag.tier.name}">${ag.tier.name}</td>
+      <td style="color:${col}">${ag.name} ${ag.surname}</td>
+      <td>${ag.location ? escHtml(ag.location.city) : '—'}</td>
+      <td>${ag.location ? escHtml(ag.location.region) : '—'}</td>
       <td>${ag.wealth.toFixed(1)}</td>
       <td>${pct}</td>
       <td><span class="age-bar-wrap"><span class="age-bar" style="width:${lifePct.toFixed(0)}%;background:${ageColor}"></span><span class="age-text">${ageY}y</span></span></td>
@@ -112,11 +126,10 @@ function renderAgentsCards(agents, roundsPerYear, inspectedId) {
   const alive  = agents.filter(a => a.alive);
   const total  = alive.reduce((s, a) => s + a.wealth, 0);
   const sorted = sortAgents(alive);
-  const tierColors = { elite: '#e85050', skilled: '#f0c040', lower: '#4fc4a0', normal: '#8899aa' };
   document.getElementById('agents-card-wrap').innerHTML = sorted.map((ag, rank) => {
     const lifePct  = Math.min(100, ag.ageYears / ag.lifespan * 100);
     const ageColor = lifePct > 85 ? '#e85050' : lifePct > 60 ? '#f0c040' : '#4fc4a0';
-    const col  = tierColors[ag.tier.name] || '#8899aa';
+    const col  = wealthColor(ag, alive);
     const pct  = total > 0 ? ((ag.wealth / total) * 100).toFixed(1) : '0';
     const wr   = ag.tradesWon + ag.tradesLost > 0
       ? ((ag.tradesWon / (ag.tradesWon + ag.tradesLost)) * 100).toFixed(0) + '%' : '—';
@@ -126,9 +139,9 @@ function renderAgentsCards(agents, roundsPerYear, inspectedId) {
       <div class="ac-rank">#${rank + 1}</div>
       <div class="ac-name" style="color:${col}">${ag.name}</div>
       <div class="ac-surname" style="color:${col};opacity:.7">${ag.surname}</div>
-      <div class="ac-location">${ag.location ? ag.location.city : '—'}</div>
+      <div class="ac-location">${ag.location ? ag.location.city + ' · ' + ag.location.region : '—'}</div>
       <div class="ac-wealth">${ag.wealth >= 1000 ? (ag.wealth/1000).toFixed(1)+'k' : ag.wealth.toFixed(0)}</div>
-      <div class="ac-share">${pct}% · ${ag.tier.name}</div>
+      <div class="ac-share">${pct}% of total</div>
       <div class="ac-age-bar" title="${ag.ageYears.toFixed(1)}y / ${ag.lifespan}y">
         <div class="ac-age-fill" style="width:${lifePct.toFixed(0)}%;background:${ageColor}"></div>
       </div>
@@ -147,8 +160,7 @@ function renderInspector(agent, agents, roundsPerYear) {
   const wr       = agent.tradesWon + agent.tradesLost > 0
     ? ((agent.tradesWon / (agent.tradesWon + agent.tradesLost)) * 100).toFixed(1) + '%' : '—';
   const lifePct   = Math.min(100, agent.ageYears / agent.lifespan * 100);
-  const tierColors = { elite: '#e85050', skilled: '#f0c040', lower: '#4fc4a0', normal: '#8899aa' };
-  const col = tierColors[agent.tier.name] || '#8899aa';
+  const col = wealthColor(agent, alive);
   const pctChange = agent.initialWealth > 0
     ? ((agent.wealth - agent.initialWealth) / agent.initialWealth * 100).toFixed(0) : null;
   const chgColor = pctChange === null ? '#5a5e72' : +pctChange > 0 ? '#4fc4a0' : +pctChange < 0 ? '#e85050' : '#5a5e72';
@@ -156,9 +168,9 @@ function renderInspector(agent, agents, roundsPerYear) {
   const html = `
     <div class="hpd-name" style="color:${col}">${escHtml(agent.name)} ${escHtml(agent.surname)}</div>
     <div class="hpd-sub">
-      <span class="tier-badge tier-${agent.tier.name}">${agent.tier.name}</span>
       ${agent.alive ? '<span class="status-alive">● Alive</span>' : '<span class="status-dead">✝ Deceased</span>'}
       · Generation ${agent.generation}
+      · ${agent.location ? escHtml(agent.location.city) : '—'}
     </div>
     ${agent.parentName ? `<div class="hpd-parent hint">Child of ${escHtml(agent.parentName)} ${escHtml(agent.surname)}</div>` : ''}
     <div class="hpd-stats">
@@ -197,18 +209,33 @@ function renderLog(tradeLog) {
   const filtered = filter
     ? tradeLog.filter(e => e.aId === +filter || e.bId === +filter ||
         e.aName?.toLowerCase().includes(filter.toLowerCase()) ||
-        e.bName?.toLowerCase().includes(filter.toLowerCase()))
+        e.bName?.toLowerCase().includes(filter.toLowerCase()) ||
+        e.aCity?.toLowerCase().includes(filter.toLowerCase()) ||
+        e.bCity?.toLowerCase().includes(filter.toLowerCase()))
     : tradeLog;
   const el = document.getElementById('log-count');
   if (el) el.textContent = `${filtered.length} entries`;
+
+  const scopeColor = { local: '#4fc4a0', regional: '#f0c040', global: '#e85050' };
+  const scopeTitle = { local: 'Same city', regional: 'Same region', global: 'Cross-region' };
+
   document.getElementById('logBody').innerHTML = filtered.map(e => {
-    const aWon = e.winner === e.aId;
+    const aWon  = e.winner === e.aId;
+    const scope = e.scope || 'local';
+    const sc    = scopeColor[scope] || '#5a6080';
+    const aCity = e.aCity ? `<span class="log-city">${escHtml(e.aCity)}</span>` : '';
+    const bCity = e.bCity ? `<span class="log-city">${escHtml(e.bCity)}</span>` : '';
+    const crossCity = e.aCity && e.bCity && e.aCity !== e.bCity
+      ? `<span class="log-cross">↔ ${escHtml(e.aCity)} → ${escHtml(e.bCity)}</span>` : '';
     return `<tr>
-      <td>${e.round}</td>
-      <td class="${aWon?'win-a':''}">${e.aName??'#'+e.aId}</td>
-      <td class="${!aWon?'win-a':''}">${e.bName??'#'+e.bId}</td>
-      <td>${e.stake}</td><td>${e.winnerName??'#'+e.winner}</td>
-      <td>${e.aAfter}</td><td>${e.bAfter}</td>
+      <td class="log-round">${e.round}</td>
+      <td><span class="log-scope" style="color:${sc};border-color:${sc}">${scope}</span></td>
+      <td class="${aWon ? 'win-a' : ''}">${escHtml(e.aName ?? '#' + e.aId)} ${escHtml(e.aSurname ?? '')}${aCity}</td>
+      <td class="${!aWon ? 'win-a' : ''}">${escHtml(e.bName ?? '#' + e.bId)} ${escHtml(e.bSurname ?? '')}${bCity}</td>
+      <td class="log-stake">${e.stake}</td>
+      <td class="log-winner">${escHtml(e.winnerName ?? '#' + e.winner)}</td>
+      <td class="log-after">${e.aAfter}</td>
+      <td class="log-after">${e.bAfter}</td>
     </tr>`;
   }).join('');
 }
@@ -360,10 +387,10 @@ function renderGenealogy() {
     ], { minY: 0, yDecimals: 0, xLabel: 'generations (oldest → newest)', leftPad: 38 });
   }
 
-  const tierColors = { elite: '#e85050', skilled: '#f0c040', lower: '#4fc4a0', normal: '#8899aa' };
+  const ACCENT = '#7799bb';
   if (personsEl) {
     personsEl.innerHTML = [...family.members].reverse().map(ag => {
-      const col   = tierColors[ag.tier.name] || '#8899aa';
+      const col   = ag.alive ? '#8fb8d8' : '#5a6e82';
       const sel   = ag.id === selectedHistoryAgentId ? ' gpc--selected' : '';
       const dead  = !ag.alive ? ' gpc--dead' : '';
       const wr    = ag.tradesWon + ag.tradesLost > 0
@@ -377,7 +404,7 @@ function renderGenealogy() {
           <span class="gpc-name" style="color:${col}">${escHtml(ag.name)} ${escHtml(ag.surname)}</span>
           ${status}
         </div>
-        <div class="gpc-dates">${escHtml(ag.birthDateStr || '?')}</div>
+        <div class="gpc-dates">${escHtml(ag.birthDateStr || '?')}${ag.location ? ' · ' + escHtml(ag.location.city) : ''}</div>
         <div class="gpc-wealth">${fmtW(ag.peakWealth || ag.wealth)} peak · ${fmtW(ag.wealth)} ${ag.alive ? 'now' : 'final'}</div>
         <div class="gpc-stats">${ag.tradesWon}W ${ag.tradesLost}L (${wr}) · ${ag.bankruptcies} bankrupt</div>
       </div>`;
@@ -403,8 +430,7 @@ function renderHistoryPersonDetail() {
   if (emptyEl) emptyEl.style.display = 'none';
   if (el)      el.style.display      = '';
 
-  const tierColors = { elite: '#e85050', skilled: '#f0c040', lower: '#4fc4a0', normal: '#8899aa' };
-  const col  = tierColors[ag.tier.name] || '#8899aa';
+  const col  = ag.alive ? '#8fb8d8' : '#5a6e82';
   const wr   = ag.tradesWon + ag.tradesLost > 0
     ? ((ag.tradesWon / (ag.tradesWon + ag.tradesLost)) * 100).toFixed(1) + '%' : '—';
   const pctChange = ag.initialWealth > 0
@@ -414,9 +440,9 @@ function renderHistoryPersonDetail() {
   el.innerHTML = `
     <div class="hpd-name" style="color:${col}">${escHtml(ag.name)} ${escHtml(ag.surname)}</div>
     <div class="hpd-sub">
-      <span class="tier-badge tier-${ag.tier.name}">${ag.tier.name}</span>
       ${ag.alive ? '<span class="status-alive">● Alive</span>' : '<span class="status-dead">✝ Deceased</span>'}
       · Generation ${ag.generation}
+      ${ag.location ? '· ' + escHtml(ag.location.city) : ''}
     </div>
     ${ag.parentName ? `<div class="hpd-parent hint">Child of ${escHtml(ag.parentName)} ${escHtml(ag.surname)}</div>` : ''}
     <div class="hpd-stats">
@@ -454,69 +480,82 @@ function renderHistoryTab() {
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
-  if (name === 'history') {
-    initHistoryEvents();
-    renderHistoryTab();
-  }
-  if (name === 'geo') renderGeographyTab();
+  if (name === 'history') { initHistoryEvents(); renderHistoryTab(); }
+  if (name === 'geo')     renderGeographyTab();
+  if (name === 'detail')  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   setTimeout(() => window._redraw && window._redraw(), 10);
 }
 // ══════════════════════════════════════════════
 // GEOGRAPHY TAB
 // ══════════════════════════════════════════════
 
-function renderGeographyTab() {
-  // Canvas heatmap
-  const gc = document.getElementById('geoCanvas');
-  if (gc) { resizeCanvas(gc); drawGeography(gc, agents); }
+let geoView = 'tiles'; // 'tiles' | 'ranked'
 
-  // Right panel: region & city breakdown
+function setGeoView(v) {
+  geoView = v;
+  document.getElementById('btn-geo-tiles')?.classList.toggle('active', v === 'tiles');
+  document.getElementById('btn-geo-ranked')?.classList.toggle('active', v === 'ranked');
+  renderGeographyTab();
+}
+
+function renderGeographyTab() {
   const alive = agents.filter(a => a.alive && a.location);
   if (!alive.length) return;
 
   const globalTotal = alive.reduce((s, a) => s + a.wealth, 0);
   const globalAvg   = globalTotal / alive.length;
 
-  // Aggregate by region then city
-  const regionMap = new Map();
+  // Aggregate by city then region
+  const cityMap = new Map();
   for (const ag of alive) {
-    const rk = ag.location.region;
-    if (!regionMap.has(rk)) regionMap.set(rk, { region: rk, cities: new Map() });
-    const rm = regionMap.get(rk);
     const ck = ag.location.city;
-    if (!rm.cities.has(ck)) rm.cities.set(ck, { city: ck, agents: [] });
-    rm.cities.get(ck).agents.push(ag);
+    if (!cityMap.has(ck)) cityMap.set(ck, { city: ck, region: ag.location.region, agents: [] });
+    cityMap.get(ck).agents.push(ag);
   }
-
-  const regions = [...regionMap.values()].map(r => {
-    const cities = [...r.cities.values()].map(c => {
-      const ws   = c.agents.map(a => a.wealth);
-      const tot  = ws.reduce((s, v) => s + v, 0);
-      return { city: c.city, count: c.agents.length, avg: tot / ws.length, total: tot };
-    }).sort((a, b) => b.avg - a.avg);
-    const rTotal = cities.reduce((s, c) => s + c.total, 0);
-    const rCount = cities.reduce((s, c) => s + c.count, 0);
-    return { region: r.region, cities, total: rTotal, avg: rTotal / rCount, count: rCount };
+  const cities = [...cityMap.values()].map(c => {
+    const ws  = c.agents.map(a => a.wealth);
+    const tot = ws.reduce((s, v) => s + v, 0);
+    return { city: c.city, region: c.region, count: c.agents.length, avg: tot / ws.length, total: tot };
   }).sort((a, b) => b.avg - a.avg);
 
-  const maxAvg = Math.max(...regions.flatMap(r => r.cities.map(c => c.avg)), 1);
-  const fmtW2 = v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(0);
+  // Aggregate by region
+  const regionMap = new Map();
+  for (const c of cities) {
+    if (!regionMap.has(c.region)) regionMap.set(c.region, { region: c.region, cities: [], total: 0, count: 0 });
+    const r = regionMap.get(c.region);
+    r.cities.push(c); r.total += c.total; r.count += c.count;
+  }
+  const regions = [...regionMap.values()].map(r => ({ ...r, avg: r.total / r.count }))
+    .sort((a, b) => b.avg - a.avg);
 
+  const fmtW2 = v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(0);
+  const regionColors = { 'Europe': '#5588cc', 'Americas': '#44aa88', 'Asia': '#dd8844', 'Africa': '#bb5566' };
+
+  // ── TILES VIEW (canvas heatmap) ──
+  const gc = document.getElementById('geoCanvas');
+  const tilesSection = document.getElementById('geo-canvas-section');
+  const rankedSection = document.getElementById('geo-ranked-section');
+
+  if (geoView === 'tiles') {
+    if (tilesSection) tilesSection.style.display = '';
+    if (rankedSection) rankedSection.style.display = 'none';
+    if (gc) { resizeCanvas(gc); drawGeography(gc, agents); }
+  } else {
+    if (tilesSection) tilesSection.style.display = 'none';
+    if (rankedSection) rankedSection.style.display = '';
+    renderGeoRanked(cities, regions, globalAvg, globalTotal, fmtW2, regionColors);
+  }
+
+  // ── RIGHT SIDEBAR: region breakdown (always visible) ──
   const el = document.getElementById('geo-region-list');
   if (!el) return;
-
-  const regionColors = {
-    'Europe':   '#5588cc',
-    'Americas': '#44aa88',
-    'Asia':     '#dd8844',
-    'Africa':   '#bb5566',
-  };
+  const maxAvg = Math.max(...cities.map(c => c.avg), 1);
 
   el.innerHTML = regions.map(r => {
     const rc = regionColors[r.region] || '#5a6080';
     const rShare = globalTotal > 0 ? ((r.total / globalTotal) * 100).toFixed(1) : '0';
     const cityRows = r.cities.map(c => {
-      const barW = Math.round((c.avg / maxAvg) * 100);
+      const barW  = Math.round((c.avg / maxAvg) * 100);
       const ratio = c.avg / Math.max(globalAvg, 1);
       const valCol = ratio > 1.3 ? '#f0c040' : ratio < 0.7 ? '#5a8aaa' : '#8899aa';
       return `<div class="geo-city-row">
@@ -525,7 +564,6 @@ function renderGeographyTab() {
         <div class="geo-city-val">${fmtW2(c.avg)} · ${c.count}</div>
       </div>`;
     }).join('');
-
     return `<div class="geo-region-section">
       <div class="geo-region-header" style="border-left-color:${rc}">
         <span class="geo-region-name">${escHtml(r.region)}</span>
@@ -534,4 +572,185 @@ function renderGeographyTab() {
       ${cityRows}
     </div>`;
   }).join('');
+}
+
+function renderGeoRanked(cities, regions, globalAvg, globalTotal, fmtW2, regionColors) {
+  const el = document.getElementById('geo-ranked-section');
+  if (!el) return;
+  const maxAvg = Math.max(...cities.map(c => c.avg), 1);
+
+  const rows = cities.map((c, i) => {
+    const rc    = regionColors[c.region] || '#5a6080';
+    const ratio = c.avg / Math.max(globalAvg, 1);
+    const barW  = Math.round((c.avg / maxAvg) * 100);
+    const valCol = ratio > 1.5 ? '#e85050' : ratio > 1.15 ? '#f0c040' : ratio < 0.7 ? '#5a8aaa' : '#7799aa';
+    const share  = globalTotal > 0 ? ((c.total / globalTotal) * 100).toFixed(1) : '0';
+    const aboveBelow = ratio >= 1.0
+      ? `<span style="color:#4fc4a0">+${((ratio - 1) * 100).toFixed(0)}%</span>`
+      : `<span style="color:#e85050">${((ratio - 1) * 100).toFixed(0)}%</span>`;
+    return `<div class="geo-ranked-row">
+      <div class="geo-ranked-num">${i + 1}</div>
+      <div class="geo-ranked-city">
+        <span class="geo-ranked-name">${escHtml(c.city)}</span>
+        <span class="geo-ranked-region" style="color:${rc}">${escHtml(c.region)}</span>
+      </div>
+      <div class="geo-ranked-bar-wrap">
+        <div class="geo-ranked-bar" style="width:${barW}%;background:${valCol}"></div>
+        <div class="geo-ranked-refline"></div>
+      </div>
+      <div class="geo-ranked-stats">
+        <span class="geo-ranked-avg" style="color:${valCol}">${fmtW2(c.avg)}</span>
+        <span class="geo-ranked-meta">${aboveBelow} avg · ${share}% wealth · ${c.count} agents</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="geo-ranked-header">
+    <span>City</span><span>Avg wealth vs global avg →</span><span>Stats</span>
+  </div>${rows}`;
+}
+// ══════════════════════════════════════════════
+// AGENT DETAIL PAGE (invisible tab panel-detail)
+// ══════════════════════════════════════════════
+
+let _detailBuiltForId = null; // track which agent the structure was built for
+window._resetDetailBuild = () => { _detailBuiltForId = null; };
+
+function renderAgentDetail(agent, agents, tradeLog, roundsPerYear) {
+  const panel = document.getElementById('panel-detail');
+  if (!panel) return;
+
+  const col = agent.alive ? '#8fb8d8' : '#5a6e82';
+
+  // ── Build structure only when agent changes ──
+  if (_detailBuiltForId !== agent.id) {
+    _detailBuiltForId = agent.id;
+    panel.innerHTML = `<div class="detail-page">
+      <div class="detail-page-header">
+        <button class="detail-back-btn" id="detail-back-btn">← Back</button>
+        <div>
+          <div class="detail-page-title" id="dp-title" style="color:${col}">${escHtml(agent.name)} ${escHtml(agent.surname)}</div>
+          <div class="detail-page-sub" id="dp-sub"></div>
+        </div>
+      </div>
+      <div class="detail-page-body">
+        <div class="detail-col-left">
+          <div class="canvas-label" style="margin-bottom:4px">wealth history</div>
+          <canvas id="detailChart" style="width:100%;height:88px;border-radius:3px;display:block"></canvas>
+          <div class="detail-stat-section">
+            <div class="detail-stat-title">Wealth</div>
+            <div id="dp-wealth-rows"></div>
+          </div>
+          <div class="detail-stat-section">
+            <div class="detail-stat-title">Life</div>
+            <div id="dp-life-rows"></div>
+          </div>
+          <div class="detail-stat-section">
+            <div class="detail-stat-title">Trading</div>
+            <div id="dp-trade-rows"></div>
+          </div>
+        </div>
+        <div class="detail-col-right">
+          <div class="canvas-label" id="dp-log-label" style="margin-bottom:6px"></div>
+          <div class="detail-tradelog-wrap">
+            <table class="log-table">
+              <thead><tr><th>Round</th><th>Scope</th><th>Result</th><th>Opponent</th><th>Stake</th><th>After</th></tr></thead>
+              <tbody id="dp-log-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    // Back button — use addEventListener so it survives innerHTML build
+    document.getElementById('detail-back-btn').addEventListener('pointerdown', () => closeInspector());
+
+    // Draw chart once (it won't change shape, just extend)
+    setTimeout(() => {
+      const chartEl = document.getElementById('detailChart');
+      if (chartEl && agent.history?.length > 1) { resizeCanvas(chartEl); drawMiniHistory(chartEl, agent.history, col); }
+    }, 0);
+  }
+
+  // ── Update dynamic values every frame ──
+  const alive    = agents.filter(a => a.alive);
+  const total    = alive.reduce((s, a) => s + a.wealth, 0);
+  const byWealth = [...alive].sort((a, b) => b.wealth - a.wealth);
+  const rank     = agent.alive ? byWealth.findIndex(a => a.id === agent.id) + 1 : null;
+  const wr       = agent.tradesWon + agent.tradesLost > 0
+    ? ((agent.tradesWon / (agent.tradesWon + agent.tradesLost)) * 100).toFixed(1) + '%' : '—';
+  const lifePct   = Math.min(100, agent.ageYears / agent.lifespan * 100);
+  const pctChange = agent.initialWealth > 0
+    ? ((agent.wealth - agent.initialWealth) / agent.initialWealth * 100).toFixed(0) : null;
+  const chgColor  = pctChange === null ? '#5a5e72' : +pctChange > 0 ? '#4fc4a0' : +pctChange < 0 ? '#e85050' : '#5a5e72';
+
+  const sub = document.getElementById('dp-sub');
+  if (sub) sub.innerHTML = `${agent.alive ? '<span class="status-alive">● Alive</span>' : '<span class="status-dead">✝ Deceased</span>'}
+    · Gen ${agent.generation}
+    ${agent.location ? '· ' + escHtml(agent.location.city) + ', ' + escHtml(agent.location.region) : ''}
+    ${rank ? '· Rank #' + rank + ' of ' + alive.length : ''}`;
+
+  const wRows = document.getElementById('dp-wealth-rows');
+  if (wRows) wRows.innerHTML =
+    `<div class="hpd-row"><span class="hpd-label">${agent.alive?'Current':'Final'}</span><span class="hpd-value">${fmtW(agent.wealth)}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Peak</span><span class="hpd-value">${fmtW(agent.peakWealth||agent.wealth)}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Starting</span><span class="hpd-value">${fmtW(agent.initialWealth)}</span></div>
+     <div class="hpd-row"><span class="hpd-label">vs starting</span><span class="hpd-value" style="color:${chgColor}">${pctChange!==null?(+pctChange>0?'+':'')+pctChange+'%':'—'}</span></div>
+     ${agent.alive?`<div class="hpd-row"><span class="hpd-label">Share of total</span><span class="hpd-value">${total>0?((agent.wealth/total)*100).toFixed(2):'—'}%</span></div>`:''}
+     ${rank?`<div class="hpd-row"><span class="hpd-label">Wealth rank</span><span class="hpd-value">#${rank} of ${alive.length}</span></div>`:''}`;
+
+  const lRows = document.getElementById('dp-life-rows');
+  if (lRows) lRows.innerHTML =
+    `<div class="hpd-row"><span class="hpd-label">Born</span><span class="hpd-value">${escHtml(agent.birthDateStr||'—')}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Age</span><span class="hpd-value">${agent.ageYears.toFixed(1)}y / ${agent.lifespan}y (${lifePct.toFixed(0)}%)</span></div>
+     ${!agent.alive?`<div class="hpd-row"><span class="hpd-label">Died</span><span class="hpd-value">${escHtml(agent.deathDateStr||'?')}</span></div>`:''}
+     ${!agent.alive?`<div class="hpd-row"><span class="hpd-label">Cause</span><span class="hpd-value">${escHtml(agent.deathCause||'?')}</span></div>`:''}
+     <div class="hpd-row"><span class="hpd-label">Location</span><span class="hpd-value">${agent.location?escHtml(agent.location.city)+' · '+escHtml(agent.location.region):'—'}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Family</span><span class="hpd-value">${escHtml(agent.surname)}</span></div>
+     ${agent.parentName?`<div class="hpd-row"><span class="hpd-label">Parent</span><span class="hpd-value">${escHtml(agent.parentName)} ${escHtml(agent.surname)}</span></div>`:''}`;
+
+  const tRows = document.getElementById('dp-trade-rows');
+  if (tRows) tRows.innerHTML =
+    `<div class="hpd-row"><span class="hpd-label">Won</span><span class="hpd-value" style="color:#4fc4a0">${agent.tradesWon}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Lost</span><span class="hpd-value" style="color:#e85050">${agent.tradesLost}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Win rate</span><span class="hpd-value">${wr}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Total</span><span class="hpd-value">${agent.tradesWon+agent.tradesLost}</span></div>
+     <div class="hpd-row"><span class="hpd-label">Bankruptcies</span><span class="hpd-value" style="color:${agent.bankruptcies>0?'#e85050':'inherit'}">${agent.bankruptcies}</span></div>`;
+
+  // ── Trade log — uses per-agent tradeHistory for completeness ──
+  const agTrades   = agent.tradeHistory || [];
+  const scopeColor = { local: '#4fc4a0', regional: '#f0c040', global: '#e85050' };
+  const lbl = document.getElementById('dp-log-label');
+  if (lbl) lbl.textContent = `personal trade log · ${agTrades.length} trades recorded`;
+
+  const tbody = document.getElementById('dp-log-body');
+  if (tbody) {
+    tbody.innerHTML = agTrades.length === 0
+      ? `<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:14px">No trades yet</td></tr>`
+      : agTrades.map(e => {
+          const isA   = e.aId === agent.id;
+          const won   = e.winner === agent.id;
+          const oName = isA
+            ? `${escHtml(e.bName??'')} ${escHtml(e.bSurname??'')}`.trim()
+            : `${escHtml(e.aName??'')} ${escHtml(e.aSurname??'')}`.trim();
+          const oCity = escHtml(isA ? (e.bCity??'—') : (e.aCity??'—'));
+          const after = isA ? e.aAfter : e.bAfter;
+          const sc    = scopeColor[e.scope||'local'] || '#5a6080';
+          return `<tr>
+            <td class="log-round">${e.round}</td>
+            <td><span class="log-scope" style="color:${sc};border-color:${sc}">${e.scope||'local'}</span></td>
+            <td style="color:${won?'#4fc4a0':'#e85050'}">${won?'▲ Won':'▼ Lost'}</td>
+            <td>${oName}<span class="log-city"> ${oCity}</span></td>
+            <td class="log-stake">${e.stake}</td>
+            <td class="log-after">${after}</td>
+          </tr>`;
+        }).join('');
+  }
+
+  // Redraw wealth chart on each update
+  const chartEl = document.getElementById('detailChart');
+  if (chartEl && agent.history?.length > 1) {
+    resizeCanvas(chartEl);
+    drawMiniHistory(chartEl, agent.history, col);
+  }
 }

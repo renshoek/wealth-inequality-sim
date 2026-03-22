@@ -67,7 +67,7 @@
 
         <!-- LEFT: charts -->
         <section class="canvas-section">
-          <div class="canvas-label">wealth distribution · color = tier · fades near death · click to inspect</div>
+          <div class="canvas-label">wealth distribution · color = percentile rank · fades near death · click to inspect</div>
           <canvas id="barCanvas"></canvas>
           <div class="canvas-label" style="margin-top:10px">lorenz curve · gap = inequality</div>
           <canvas id="lorenzCanvas"></canvas>
@@ -145,54 +145,6 @@
               </div>
               <input type="range" id="sl-mortality" min="0" max="1" value="0.2" step="0.05">
             </div>
-
-            <div class="divider"></div>
-            <div class="section-title">
-              Skill tiers &amp; win rates
-              <span class="tip" data-tip="Agents are split into groups with different advantages. Lower agents start with less wealth. Skilled and Elite agents win more trades. Normal tier auto-adjusts to keep total at 100%.">?</span>
-            </div>
-            <div class="hint" style="margin-bottom:6px">Normal auto-adjusts · win rate = chance of winning a trade</div>
-
-            <div class="tier-grid">
-              <div class="tier-header">
-                <span></span>
-                <span class="hint">% <span class="tip" data-tip="What percentage of agents start in this tier.">?</span></span>
-                <span class="hint">win % <span class="tip" data-tip="Probability of winning a trade against an equal opponent. 50% = pure luck. 53% = slight advantage.">?</span></span>
-              </div>
-              <div class="tier-row">
-                <span class="tier-name tier-lower">Lower</span>
-                <input type="number" class="tier-inp" id="tier-lower" value="1" min="0" max="100">
-                <div class="wr-cell">
-                  <input type="range" id="wr-lower" min="30" max="70" value="48" step="1">
-                  <span class="val-sm" id="disp-wr-lower">48%</span>
-                </div>
-              </div>
-              <div class="tier-row">
-                <span class="tier-name tier-normal">Normal</span>
-                <input type="number" class="tier-inp" id="tier-normal" value="97" min="0" max="100">
-                <div class="wr-cell">
-                  <input type="range" id="wr-normal" min="30" max="70" value="50" step="1">
-                  <span class="val-sm" id="disp-wr-normal">50%</span>
-                </div>
-              </div>
-              <div class="tier-row">
-                <span class="tier-name tier-skilled">Skilled</span>
-                <input type="number" class="tier-inp" id="tier-skilled" value="1" min="0" max="100">
-                <div class="wr-cell">
-                  <input type="range" id="wr-skilled" min="30" max="70" value="51" step="1">
-                  <span class="val-sm" id="disp-wr-skilled">51%</span>
-                </div>
-              </div>
-              <div class="tier-row">
-                <span class="tier-name tier-elite">Elite</span>
-                <input type="number" class="tier-inp" id="tier-elite" value="1" min="0" max="100">
-                <div class="wr-cell">
-                  <input type="range" id="wr-elite" min="30" max="70" value="53" step="1">
-                  <span class="val-sm" id="disp-wr-elite">53%</span>
-                </div>
-              </div>
-            </div>
-            <div id="tier-warn" class="hint" style="color:#e85050;display:none">⚠ Tiers must sum to 100%</div>
 
             <div class="divider"></div>
             <div class="section-title">Tax &amp; redistribution</div>
@@ -306,17 +258,6 @@
 
             <div class="control-group">
               <div class="control-row">
-                <label>Tier mobility <span class="tip" data-tip="When on, each descendant has a 25% chance of switching to a different random tier from their parent. Simulates social mobility — children may rise or fall in class. Off by default.">?</span></label>
-                <select id="sel-tiermobility">
-                  <option value="0">Off</option>
-                  <option value="1">On (25% chance)</option>
-                </select>
-              </div>
-              <div class="hint">descendants may switch tiers on birth</div>
-            </div>
-
-            <div class="control-group">
-              <div class="control-row">
                 <label>Money printing <span class="tip" data-tip="Adds this fixed amount to the tax pool every 10 rounds, simulating government money creation or stimulus. 0 = disabled.">?</span></label>
                 <span class="val" id="disp-moneyprint">100</span>
               </div>
@@ -353,7 +294,7 @@
         <div id="agents-table-wrap" class="agents-table-wrap" style="display:none">
           <table class="agents-table">
             <thead><tr>
-              <th>#</th><th>Name</th><th>Tier</th><th>Wealth</th><th>% total</th>
+              <th>#</th><th>Name</th><th>City</th><th>Region</th><th>Wealth</th><th>% total</th>
               <th>Age</th><th>Lifespan</th><th>Won</th><th>Lost</th><th>Win %</th>
               <th>Bankrupt</th><th>Gen</th>
             </tr></thead>
@@ -377,7 +318,7 @@
       </div>
       <div class="log-wrap">
         <table class="log-table">
-          <thead><tr><th>Round</th><th>Agent A</th><th>Agent B</th><th>Stake</th><th>Winner</th><th>A after</th><th>B after</th></tr></thead>
+          <thead><tr><th>Round</th><th>Scope</th><th>Agent A</th><th>Agent B</th><th>Stake</th><th>Winner</th><th>A after</th><th>B after</th></tr></thead>
           <tbody id="logBody"></tbody>
         </table>
       </div>
@@ -435,9 +376,16 @@
     <!-- ═══ GEOGRAPHY ═══ -->
     <div class="tab-panel" id="panel-geo">
       <div class="geo-layout">
-        <section class="geo-canvas-section">
-          <div class="canvas-label">wealth by city · color = avg wealth relative to global average</div>
-          <canvas id="geoCanvas"></canvas>
+        <section class="geo-main">
+          <div class="geo-view-toggle">
+            <button class="view-btn active" id="btn-geo-tiles" onclick="setGeoView('tiles')">⊞ Tiles</button>
+            <button class="view-btn" id="btn-geo-ranked" onclick="setGeoView('ranked')">≡ Ranked</button>
+          </div>
+          <div id="geo-canvas-section" class="geo-canvas-section">
+            <div class="canvas-label">avg wealth by city · blue=below avg · yellow=above · red=well above</div>
+            <canvas id="geoCanvas"></canvas>
+          </div>
+          <div id="geo-ranked-section" class="geo-ranked-section" style="display:none"></div>
         </section>
         <aside class="geo-sidebar">
           <div class="canvas-label" style="margin-bottom:8px">breakdown by region &amp; city</div>
@@ -446,16 +394,16 @@
       </div>
     </div>
 
+    <!-- ═══ AGENT DETAIL (invisible tab, no button) ═══ -->
+    <div class="tab-panel" id="panel-detail"></div>
+
   </div>
   <div id="params-backdrop" class="params-backdrop" onclick="closeDrawer()"></div>
 
-  <!-- FLOATING INSPECTOR -->
-  <div id="inspector" class="inspector" style="display:none">
-    <div class="inspector-header">
-      <span id="inspector-title">Agent</span>
-      <button onclick="closeInspector()">✕</button>
-    </div>
-    <canvas id="inspectorChartFloat" width="272" height="80" style="width:272px;height:80px;display:block"></canvas>
+  <!-- Inspector stub — IDs kept for back-compat, element hidden -->
+  <div id="inspector" style="display:none">
+    <span id="inspector-title"></span>
+    <canvas id="inspectorChartFloat" style="display:none"></canvas>
     <div id="inspectorStatsFloat"></div>
   </div>
 

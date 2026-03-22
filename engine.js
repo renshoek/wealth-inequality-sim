@@ -27,7 +27,6 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
   const {
     trades, maxbet, taxMode, flatTax, brackets,
     redist, luck, baseWealth,
-    winRates,
     redistWeights,
     bankruptcyPayout,
     moneyPrint,
@@ -61,7 +60,6 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
         taxPool.amount += tax;
       }
     } else {
-      // wealth-bracket: quartile thresholds computed from current distribution
       const sorted = [...alive].map(a => a.wealth).sort((a, b) => a - b);
       const len    = sorted.length;
       const q25    = sorted[Math.max(0, Math.ceil(len * 0.25) - 1)] ?? 0;
@@ -106,18 +104,14 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     }
   }
 
-  // ── 4. Trades — recession drops volume to 25% ──
+  // ── 4. Trades — 50/50 pure luck, recession drops volume to 25% ──
   const activeTrades = recessionState.active
     ? Math.max(1, Math.round(trades * 0.25))
     : trades;
 
-  const pool = [];
-  for (const ag of alive)
-    for (let k = 0; k < ag.tier.tradeBonus; k++) pool.push(ag);
-
   for (let t = 0; t < activeTrades; t++) {
-    const a = pool[Math.floor(Math.random() * pool.length)];
-    const b = pool[Math.floor(Math.random() * pool.length)];
+    const a = alive[Math.floor(Math.random() * alive.length)];
+    const b = alive[Math.floor(Math.random() * alive.length)];
     if (!a || !b || a === b) continue;
 
     const poorer = Math.min(a.wealth, b.wealth);
@@ -125,8 +119,7 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     const stake = Math.random() * poorer * (maxbet / 100);
     if (stake < 0.001) continue;
 
-    const aWinProb = (winRates[a.tier.name] / 100 + (1 - winRates[b.tier.name] / 100)) / 2;
-    const aWins    = Math.random() < aWinProb;
+    const aWins = Math.random() < 0.5;
 
     if (aWins) {
       a.wealth += stake; b.wealth -= stake; a.tradesWon++; b.tradesLost++;
@@ -147,17 +140,34 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     if (a.wealth < 0) a.wealth = 0;
     if (b.wealth < 0) b.wealth = 0;
 
+    // Per-agent history — always recorded, capped at 200 per agent
+    const aCity   = a.location?.city   ?? '?';
+    const bCity   = b.location?.city   ?? '?';
+    const aRegion = a.location?.region ?? '?';
+    const bRegion = b.location?.region ?? '?';
+    const scope   = aCity === bCity ? 'local' : aRegion === bRegion ? 'regional' : 'global';
+    const entry = {
+      round,
+      aId: a.id, aName: a.name, aSurname: a.surname, aCity, aRegion,
+      bId: b.id, bName: b.name, bSurname: b.surname, bCity, bRegion,
+      scope,
+      stake: +stake.toFixed(2),
+      winner: aWins ? a.id : b.id,
+      winnerName: aWins ? a.name : b.name,
+      aAfter: +a.wealth.toFixed(2), bAfter: +b.wealth.toFixed(2),
+    };
+    a.tradeHistory.unshift(entry);
+    if (a.tradeHistory.length > 200) a.tradeHistory.pop();
+    b.tradeHistory.unshift(entry);
+    if (b.tradeHistory.length > 200) b.tradeHistory.pop();
+
+    // Global log — capped at 500
     if (tradeLogBuf.length < 500) {
-      tradeLogBuf.unshift({
-        round, aId: a.id, aName: a.name, bId: b.id, bName: b.name,
-        stake: +stake.toFixed(2),
-        winner: aWins ? a.id : b.id, winnerName: aWins ? a.name : b.name,
-        aAfter: +a.wealth.toFixed(2), bAfter: +b.wealth.toFixed(2),
-      });
+      tradeLogBuf.unshift(entry);
     }
   }
 
-  // ── 5. Recession erosion — routes lost wealth to tax pool ──
+  // ── 5. Recession erosion ──
   if (recessionState.active) {
     for (const ag of alive) {
       const erosion   = ag.wealth * 0.003;

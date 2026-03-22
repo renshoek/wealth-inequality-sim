@@ -161,7 +161,6 @@ const LOCATIONS = [
   { city: 'Berlin',       region: 'Europe'    },
   { city: 'Amsterdam',    region: 'Europe'    },
   { city: 'Madrid',       region: 'Europe'    },
-  { city: 'Warsaw',       region: 'Europe'    },
   { city: 'New York',     region: 'Americas'  },
   { city: 'Los Angeles',  region: 'Americas'  },
   { city: 'Chicago',      region: 'Americas'  },
@@ -176,6 +175,7 @@ const LOCATIONS = [
   { city: 'Nairobi',      region: 'Africa'    },
   { city: 'Cairo',        region: 'Africa'    },
   { city: 'Johannesburg', region: 'Africa'    },
+  { city: 'Accra',        region: 'Africa'    },
 ];
 
 function pickLocation() {
@@ -190,26 +190,15 @@ function pickMigratedLocation(currentCity) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-const TIER_FIXED = {
-  lower:   { tradeBonus: 1, startMult: 1.0 },
-  normal:  { tradeBonus: 1, startMult: 1.0 },
-  skilled: { tradeBonus: 1, startMult: 1.0 },
-  elite:   { tradeBonus: 2, startMult: 1.0 },
-};
-
-const ALL_TIERS = ['lower', 'normal', 'skilled', 'elite'];
-
 function createAgent(
-  tierName, startWealth, startAgeYears,
+  startWealth, startAgeYears,
   generation = 0, parentId = null, parentName = null,
   surname = '', birthDateStr = '', location = null
 ) {
-  const id    = _nextId++;
-  const name  = pickName();
-  const fixed = TIER_FIXED[tierName] || TIER_FIXED.normal;
+  const id = _nextId++;
+  const name = pickName();
   return {
     id, name, surname, generation, parentId, parentName,
-    tier: { name: tierName, ...fixed },
     location: location || pickLocation(),
     wealth:        startWealth,
     initialWealth: startWealth,
@@ -223,12 +212,13 @@ function createAgent(
     bankruptcies: 0, naturalDeaths: 0,
     history: [+startWealth.toFixed(1)],
     alive: true,
+    displayColor: [80, 110, 160],
+    tradeHistory: [], // per-agent log, capped at 200
   };
 }
 
-function buildInitialAgents(count, baseWealth, tierConfig, birthDateStr = '') {
+function buildInitialAgents(count, baseWealth, birthDateStr = '') {
   resetAgentIds();
-  const tierList = buildTierList(count, tierConfig);
   const usedSurnames = new Set();
 
   function pickUniqueSurname() {
@@ -236,34 +226,15 @@ function buildInitialAgents(count, baseWealth, tierConfig, birthDateStr = '') {
       const s = pickSurname();
       if (!usedSurnames.has(s)) { usedSurnames.add(s); return s; }
     }
-    return pickSurname(); // pool exhausted, allow duplicates
+    return pickSurname();
   }
 
-  return tierList.map(t => {
-    const fixed    = TIER_FIXED[t] || TIER_FIXED.normal;
+  return Array.from({ length: count }, () => {
     const startAge = 20 + Math.floor(Math.random() * 21);
     const surname  = pickUniqueSurname();
     const location = pickLocation();
-    return createAgent(t, baseWealth * fixed.startMult, startAge, 0, null, null, surname, birthDateStr, location);
+    return createAgent(baseWealth, startAge, 0, null, null, surname, birthDateStr, location);
   });
-}
-
-function buildTierList(n, tierConfig) {
-  const { lower, normal, skilled, elite } = tierConfig;
-  const sum   = lower + normal + skilled + elite;
-  const scale = sum > 0 ? 100 / sum : 1;
-  const counts = {
-    lower:   Math.round(n * lower   * scale / 100),
-    normal:  Math.round(n * normal  * scale / 100),
-    skilled: Math.round(n * skilled * scale / 100),
-    elite:   0,
-  };
-  counts.elite = Math.max(0, n - counts.lower - counts.normal - counts.skilled);
-  const list = [];
-  for (const [tier, cnt] of Object.entries(counts))
-    for (let i = 0; i < cnt; i++) list.push(tier);
-  while (list.length < n) list.push('normal');
-  return list.slice(0, n);
 }
 
 function tickLifespans(agents, roundsPerYear, mortalityRate) {
@@ -293,25 +264,18 @@ function tickLifespans(agents, roundsPerYear, mortalityRate) {
   return dead;
 }
 
-// tierMobility: when true, 25% chance the child switches to a different random tier
-function spawnSuccessor(deceased, inheritPct, baseWealth, birthDateStr = '', tierMobility = false) {
+function spawnSuccessor(deceased, inheritPct, baseWealth, birthDateStr = '') {
   const childShare  = deceased.wealth * (inheritPct / 100);
   const taxShare    = deceased.wealth - childShare;
   const startWealth = Math.max(childShare, baseWealth * 0.01);
 
-  let newTierName = deceased.tier.name;
-  if (tierMobility && Math.random() < 0.25) {
-    const others = ALL_TIERS.filter(t => t !== deceased.tier.name);
-    newTierName  = others[Math.floor(Math.random() * others.length)];
-  }
-
-  // 5% chance child migrates to a different city
+  // 5% chance child migrates within same region
   const location = (deceased.location && Math.random() < 0.05)
     ? pickMigratedLocation(deceased.location.city)
     : (deceased.location || pickLocation());
 
   const successor = createAgent(
-    newTierName, startWealth, 20,
+    startWealth, 20,
     deceased.generation + 1, deceased.id, deceased.name,
     deceased.surname, birthDateStr, location
   );

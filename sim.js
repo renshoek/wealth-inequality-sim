@@ -43,9 +43,6 @@ const DEFAULTS = {
   timeUnit:         'week',
   speed:            16,
   moneyPrint:       100,
-  tierMobility:     false,
-  tiers:         { lower: 1, normal: 97, skilled: 1, elite: 1 },
-  winRates:      { lower: 48, normal: 50, skilled: 51, elite: 53 },
   redistWeights: { q1: 1.0, q2: 1.0, q3: 1.0, q4: 1.0 },
 };
 
@@ -70,7 +67,7 @@ function advanceDate() {
 function init() {
   simDate       = new Date(SIM_START);
   redistPending = false;
-  agents = buildInitialAgents(p.agentCount, p.startWealth, p.tiers, fmtDate(simDate));
+  agents = buildInitialAgents(p.agentCount, p.startWealth, fmtDate(simDate));
   allAgentsMap  = new Map();
   for (const ag of agents) allAgentsMap.set(ag.id, ag);
   tradeLog           = [];
@@ -98,7 +95,6 @@ function step() {
     trades: p.trades, maxbet: p.maxbet,
     taxMode: p.taxMode, flatTax: p.flatTax, brackets: p.brackets,
     redist: p.redist, luck: p.luck,
-    winRates: p.winRates,
     redistWeights: p.redistWeights,
     bankruptcyPayout: p.bankruptcyPayout,
     baseWealth: p.startWealth,
@@ -118,7 +114,7 @@ function step() {
     deceased.deathDateStr = fmtDate(simDate);
     totalDeaths++;
     const { successor, taxContribution } = spawnSuccessor(
-      deceased, p.inheritPct, p.startWealth, fmtDate(simDate), p.tierMobility
+      deceased, p.inheritPct, p.startWealth, fmtDate(simDate)
     );
     taxPool.amount += taxContribution;
     agents[agents.indexOf(deceased)] = successor;
@@ -171,11 +167,11 @@ function loop(ts) {
       if (active.id === 'panel-log')     renderLog(tradeLog);
       if (active.id === 'panel-history' && round % 30 === 0) renderHistoryTab();
       if (active.id === 'panel-geo')     renderGeographyTab();
-    }
-    if (inspectedId !== null) {
-      const ag = agents.find(a => a.id === inspectedId && a.alive);
-      if (ag) renderInspector(ag, agents, roundsPerYear());
-      else    closeInspector();
+      if (active.id === 'panel-detail' && inspectedId !== null && round % 5 === 0) {
+        const _dag = agents.find(a => a.id === inspectedId && a.alive) || allAgentsMap.get(inspectedId);
+        if (_dag) renderAgentDetail(_dag, agents, tradeLog, roundsPerYear());
+        else      closeInspector();
+      }
     }
     lastFrame = ts;
   }
@@ -215,6 +211,11 @@ function triggerRecession() {
 
 function closeInspector() {
   inspectedId = null;
+  if (typeof _detailBuiltForId !== 'undefined') window._detailBuiltForId = null;
+  // reset the module-level var in ui.js scope via a shared reset
+  if (window._resetDetailBuild) window._resetDetailBuild();
+  const active = document.querySelector('.tab-panel.active');
+  if (active && active.id === 'panel-detail') switchTab('sim');
   document.getElementById('inspector').style.display = 'none';
   const ph = document.getElementById('detail-placeholder');
   if (ph) ph.style.display = '';
@@ -226,11 +227,10 @@ function closeInspector() {
 
 window._selectAgent = function(id) {
   inspectedId = id;
-  // Search alive agents first, fall back to allAgentsMap for dead agents
   const ag = agents.find(a => a.id === id && a.alive) || allAgentsMap.get(id);
   if (!ag) return;
-  document.getElementById('inspector').style.display = '';
-  renderInspector(ag, agents, roundsPerYear());
+  switchTab('detail');
+  renderAgentDetail(ag, agents, tradeLog, roundsPerYear());
 };
 
 function clearLog() { tradeLog = []; renderLog(tradeLog); }
@@ -264,22 +264,13 @@ function syncAllControls() {
   document.getElementById('sel-speed').value        = p.speed;
   document.getElementById('sel-timeunit').value     = p.timeUnit;
   document.getElementById('sel-taxmode').value      = p.taxMode;
-  document.getElementById('sel-tiermobility').value = p.tierMobility ? '1' : '0';
   document.getElementById('flat-tax-ctrl').style.display    = (p.taxMode === 'wealth-flat'    || p.taxMode === 'income-flat')    ? '' : 'none';
   document.getElementById('bracket-tax-ctrl').style.display = (p.taxMode === 'wealth-bracket' || p.taxMode === 'income-bracket') ? '' : 'none';
   p.brackets.forEach((v, i) => { const el = document.getElementById(`br-${i+1}`); if (el) el.value = v; });
-  Object.entries(p.tiers).forEach(([tier, val]) => {
-    const el = document.getElementById(`tier-${tier}`); if (el) el.value = val;
-  });
-  Object.entries(p.winRates).forEach(([tier, val]) => {
-    const sl = document.getElementById(`wr-${tier}`), dp = document.getElementById(`disp-wr-${tier}`);
-    if (sl) sl.value = val; if (dp) dp.textContent = val + '%';
-  });
   Object.entries(p.redistWeights).forEach(([key, val]) => {
     const sl = document.getElementById(`rw-${key}`), dp = document.getElementById(`disp-rw-${key}`);
     if (sl) sl.value = val; if (dp) dp.textContent = (+val).toFixed(1) + '×';
   });
-  document.getElementById('tier-warn').style.display = 'none';
 }
 
 // ── BAR CANVAS CLICK ──
@@ -336,7 +327,6 @@ bs('sl-moneyprint', 'disp-moneyprint', v => p.moneyPrint       = v);
 
 document.getElementById('sel-speed').addEventListener('change',   e => { p.speed    = +e.target.value; });
 document.getElementById('sel-timeunit').addEventListener('change', e => { p.timeUnit = e.target.value; });
-document.getElementById('sel-tiermobility').addEventListener('change', e => { p.tierMobility = e.target.value === '1'; });
 
 document.getElementById('sel-taxmode').addEventListener('change', e => {
   p.taxMode = e.target.value;
@@ -353,26 +343,6 @@ document.getElementById('sel-taxmode').addEventListener('change', e => {
 
 ['br-1','br-2','br-3','br-4'].forEach((id, i) => {
   document.getElementById(id)?.addEventListener('input', e => { p.brackets[i] = +e.target.value; });
-});
-
-['lower','normal','skilled','elite'].forEach(tier => {
-  document.getElementById(`tier-${tier}`)?.addEventListener('input', e => {
-    p.tiers[tier] = +e.target.value;
-    if (tier !== 'normal') {
-      const others = p.tiers.lower + p.tiers.skilled + p.tiers.elite;
-      p.tiers.normal = Math.max(0, 100 - others);
-      const normalEl = document.getElementById('tier-normal');
-      if (normalEl) normalEl.value = p.tiers.normal;
-    }
-    const sum = Object.values(p.tiers).reduce((s, v) => s + v, 0);
-    document.getElementById('tier-warn').style.display = Math.abs(sum - 100) > 1 ? '' : 'none';
-    if (started && Math.abs(sum - 100) <= 1) reset();
-  });
-  document.getElementById(`wr-${tier}`)?.addEventListener('input', e => {
-    p.winRates[tier] = +e.target.value;
-    const dp = document.getElementById(`disp-wr-${tier}`);
-    if (dp) dp.textContent = e.target.value + '%';
-  });
 });
 
 ['q1','q2','q3','q4'].forEach(key => {
