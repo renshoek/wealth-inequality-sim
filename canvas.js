@@ -360,3 +360,100 @@ function gini(vals) {
   const denom = n * s.reduce((a, v) => a + v, 0);
   return denom === 0 ? 0 : num / denom;
 }
+// ── GEOGRAPHY ──
+function drawGeography(canvas, agents) {
+  const d = dpr(), ctx = canvas.getContext('2d');
+  const W = canvas.width / d, H = canvas.height / d;
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.fillStyle = '#15171e'; ctx.fillRect(0, 0, W, H);
+
+  const alive = agents.filter(a => a.alive && a.location);
+  if (!alive.length) return;
+
+  // Aggregate by city
+  const cityMap = new Map();
+  for (const ag of alive) {
+    const key = ag.location.city;
+    if (!cityMap.has(key)) cityMap.set(key, { city: ag.location.city, region: ag.location.region, ws: [] });
+    cityMap.get(key).ws.push(ag.wealth);
+  }
+  const cities = [...cityMap.values()].map(c => {
+    const total = c.ws.reduce((s, v) => s + v, 0);
+    const avg   = total / c.ws.length;
+    return { city: c.city, region: c.region, count: c.ws.length, avg, total, giniVal: gini(c.ws) };
+  });
+
+  const globalAvg = alive.reduce((s, a) => s + a.wealth, 0) / alive.length;
+
+  // Sort by avg wealth desc
+  cities.sort((a, b) => b.avg - a.avg);
+
+  // Grid layout — auto-fit columns to canvas aspect ratio
+  const n = cities.length;
+  const cols = Math.max(4, Math.min(9, Math.round(Math.sqrt(n * (W / H)))));
+  const rows = Math.ceil(n / cols);
+  const pad  = 4;
+  const tW   = (W - pad * (cols + 1)) / cols;
+  const tH   = (H - pad * (rows + 1)) / rows;
+
+  const regionColors = {
+    'Europe':   '#5588cc',
+    'Americas': '#44aa88',
+    'Asia':     '#dd8844',
+    'Africa':   '#bb5566',
+  };
+
+  // Wealth color: blue(poor) → neutral → yellow → red(rich)
+  function wealthColor(ratio) {
+    const t = Math.max(0, Math.min(1, (ratio - 0.15) / 2.85));
+    if (t < 0.33) {
+      const s = t / 0.33;
+      return [Math.round(lerp(50, 90, s)), Math.round(lerp(80, 140, s)), Math.round(lerp(160, 90, s))];
+    } else if (t < 0.67) {
+      const s = (t - 0.33) / 0.34;
+      return [Math.round(lerp(90, 240, s)), Math.round(lerp(140, 192, s)), Math.round(lerp(90, 64, s))];
+    } else {
+      const s = (t - 0.67) / 0.33;
+      return [Math.round(lerp(240, 232, s)), Math.round(lerp(192, 80, s)), Math.round(lerp(64, 80, s))];
+    }
+  }
+
+  const fmtAvg = v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(0);
+
+  cities.forEach((c, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x   = pad + col * (tW + pad);
+    const y   = pad + row * (tH + pad);
+
+    const ratio = c.avg / Math.max(globalAvg, 1);
+    const [r, g, b] = wealthColor(ratio);
+
+    // Tile background
+    ctx.fillStyle = `rgba(${r},${g},${b},0.82)`;
+    ctx.beginPath(); ctx.roundRect(x, y, tW, tH, 4); ctx.fill();
+
+    // Region accent bar at top
+    const rc = regionColors[c.region] || '#5a6080';
+    ctx.fillStyle = rc;
+    ctx.beginPath(); ctx.roundRect(x, y, tW, 3, [4, 4, 0, 0]); ctx.fill();
+
+    // City name
+    const nameSize = Math.max(7, Math.min(11, tH * 0.21));
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.font = `500 ${nameSize}px 'DM Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(c.city, x + tW / 2, y + tH * 0.42, tW - 6);
+
+    // Avg wealth
+    const valSize = Math.max(6, Math.min(9, tH * 0.16));
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = `${valSize}px 'DM Mono', monospace`;
+    ctx.fillText(fmtAvg(c.avg) + ' avg', x + tW / 2, y + tH * 0.63, tW - 4);
+
+    // Agent count
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = `${valSize}px 'DM Mono', monospace`;
+    ctx.fillText(c.count + ' agents', x + tW / 2, y + tH * 0.82, tW - 4);
+  });
+}

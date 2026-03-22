@@ -51,10 +51,11 @@
 
   <!-- TABS -->
   <div class="tabs">
-    <button class="tab active" data-tab="sim"    onclick="switchTab('sim')">Simulation</button>
-    <button class="tab"        data-tab="agents" onclick="switchTab('agents')">Agents</button>
-    <button class="tab"        data-tab="log"    onclick="switchTab('log')">Trade log</button>
+    <button class="tab active" data-tab="sim"     onclick="switchTab('sim')">Simulation</button>
+    <button class="tab"        data-tab="agents"  onclick="switchTab('agents')">Agents</button>
+    <button class="tab"        data-tab="log"     onclick="switchTab('log')">Trade log</button>
     <button class="tab"        data-tab="history" onclick="switchTab('history')">History</button>
+    <button class="tab"        data-tab="geo"     onclick="switchTab('geo')">Geography</button>
   </div>
 
   <!-- MAIN -->
@@ -431,9 +432,21 @@
       </div>
     </div>
 
-  </div>
+    <!-- ═══ GEOGRAPHY ═══ -->
+    <div class="tab-panel" id="panel-geo">
+      <div class="geo-layout">
+        <section class="geo-canvas-section">
+          <div class="canvas-label">wealth by city · color = avg wealth relative to global average</div>
+          <canvas id="geoCanvas"></canvas>
+        </section>
+        <aside class="geo-sidebar">
+          <div class="canvas-label" style="margin-bottom:8px">breakdown by region &amp; city</div>
+          <div id="geo-region-list" class="geo-region-list"></div>
+        </aside>
+      </div>
+    </div>
 
-  <!-- PARAMS DRAWER BACKDROP (mobile only) -->
+  </div>
   <div id="params-backdrop" class="params-backdrop" onclick="closeDrawer()"></div>
 
   <!-- FLOATING INSPECTOR -->

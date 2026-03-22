@@ -170,6 +170,7 @@ function loop(ts) {
       if (active.id === 'panel-agents')  renderAgentsView(agents, roundsPerYear(), inspectedId);
       if (active.id === 'panel-log')     renderLog(tradeLog);
       if (active.id === 'panel-history' && round % 30 === 0) renderHistoryTab();
+      if (active.id === 'panel-geo')     renderGeographyTab();
     }
     if (inspectedId !== null) {
       const ag = agents.find(a => a.id === inspectedId && a.alive);
@@ -385,7 +386,7 @@ document.getElementById('sel-taxmode').addEventListener('change', e => {
 document.getElementById('log-filter')?.addEventListener('input', () => renderLog(tradeLog));
 
 const ro = new ResizeObserver(() => redraw());
-['barCanvas','lorenzCanvas','giniCanvas','economyCanvas'].forEach(id => {
+['barCanvas','lorenzCanvas','giniCanvas','economyCanvas','geoCanvas'].forEach(id => {
   const el = document.getElementById(id);
   if (el) ro.observe(el);
 });

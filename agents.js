@@ -155,6 +155,41 @@ function resetAgentIds() {
   _surnameIdx  = 0;
 }
 
+const LOCATIONS = [
+  { city: 'London',       region: 'Europe'    },
+  { city: 'Paris',        region: 'Europe'    },
+  { city: 'Berlin',       region: 'Europe'    },
+  { city: 'Amsterdam',    region: 'Europe'    },
+  { city: 'Madrid',       region: 'Europe'    },
+  { city: 'Warsaw',       region: 'Europe'    },
+  { city: 'New York',     region: 'Americas'  },
+  { city: 'Los Angeles',  region: 'Americas'  },
+  { city: 'Chicago',      region: 'Americas'  },
+  { city: 'São Paulo',    region: 'Americas'  },
+  { city: 'Mexico City',  region: 'Americas'  },
+  { city: 'Tokyo',        region: 'Asia'      },
+  { city: 'Shanghai',     region: 'Asia'      },
+  { city: 'Mumbai',       region: 'Asia'      },
+  { city: 'Seoul',        region: 'Asia'      },
+  { city: 'Dubai',        region: 'Asia'      },
+  { city: 'Lagos',        region: 'Africa'    },
+  { city: 'Nairobi',      region: 'Africa'    },
+  { city: 'Cairo',        region: 'Africa'    },
+  { city: 'Johannesburg', region: 'Africa'    },
+];
+
+function pickLocation() {
+  return LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
+}
+
+function pickMigratedLocation(currentCity) {
+  // Stay within the same region — different city only
+  const current = LOCATIONS.find(l => l.city === currentCity);
+  const sameRegion = LOCATIONS.filter(l => l.region === (current?.region) && l.city !== currentCity);
+  const pool = sameRegion.length > 0 ? sameRegion : LOCATIONS.filter(l => l.city !== currentCity);
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 const TIER_FIXED = {
   lower:   { tradeBonus: 1, startMult: 1.0 },
   normal:  { tradeBonus: 1, startMult: 1.0 },
@@ -167,7 +202,7 @@ const ALL_TIERS = ['lower', 'normal', 'skilled', 'elite'];
 function createAgent(
   tierName, startWealth, startAgeYears,
   generation = 0, parentId = null, parentName = null,
-  surname = '', birthDateStr = ''
+  surname = '', birthDateStr = '', location = null
 ) {
   const id    = _nextId++;
   const name  = pickName();
@@ -175,6 +210,7 @@ function createAgent(
   return {
     id, name, surname, generation, parentId, parentName,
     tier: { name: tierName, ...fixed },
+    location: location || pickLocation(),
     wealth:        startWealth,
     initialWealth: startWealth,
     peakWealth:    startWealth,
@@ -193,11 +229,22 @@ function createAgent(
 function buildInitialAgents(count, baseWealth, tierConfig, birthDateStr = '') {
   resetAgentIds();
   const tierList = buildTierList(count, tierConfig);
+  const usedSurnames = new Set();
+
+  function pickUniqueSurname() {
+    for (let attempt = 0; attempt < SURNAMES.length; attempt++) {
+      const s = pickSurname();
+      if (!usedSurnames.has(s)) { usedSurnames.add(s); return s; }
+    }
+    return pickSurname(); // pool exhausted, allow duplicates
+  }
+
   return tierList.map(t => {
     const fixed    = TIER_FIXED[t] || TIER_FIXED.normal;
     const startAge = 20 + Math.floor(Math.random() * 21);
-    const surname  = pickSurname();
-    return createAgent(t, baseWealth * fixed.startMult, startAge, 0, null, null, surname, birthDateStr);
+    const surname  = pickUniqueSurname();
+    const location = pickLocation();
+    return createAgent(t, baseWealth * fixed.startMult, startAge, 0, null, null, surname, birthDateStr, location);
   });
 }
 
@@ -258,10 +305,15 @@ function spawnSuccessor(deceased, inheritPct, baseWealth, birthDateStr = '', tie
     newTierName  = others[Math.floor(Math.random() * others.length)];
   }
 
+  // 5% chance child migrates to a different city
+  const location = (deceased.location && Math.random() < 0.05)
+    ? pickMigratedLocation(deceased.location.city)
+    : (deceased.location || pickLocation());
+
   const successor = createAgent(
     newTierName, startWealth, 20,
     deceased.generation + 1, deceased.id, deceased.name,
-    deceased.surname, birthDateStr
+    deceased.surname, birthDateStr, location
   );
   successor.naturalDeaths = deceased.naturalDeaths + 1;
   return { successor, taxContribution: taxShare };

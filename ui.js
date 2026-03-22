@@ -126,6 +126,7 @@ function renderAgentsCards(agents, roundsPerYear, inspectedId) {
       <div class="ac-rank">#${rank + 1}</div>
       <div class="ac-name" style="color:${col}">${ag.name}</div>
       <div class="ac-surname" style="color:${col};opacity:.7">${ag.surname}</div>
+      <div class="ac-location">${ag.location ? ag.location.city : '—'}</div>
       <div class="ac-wealth">${ag.wealth >= 1000 ? (ag.wealth/1000).toFixed(1)+'k' : ag.wealth.toFixed(0)}</div>
       <div class="ac-share">${pct}% · ${ag.tier.name}</div>
       <div class="ac-age-bar" title="${ag.ageYears.toFixed(1)}y / ${ag.lifespan}y">
@@ -139,35 +140,53 @@ function renderAgentsCards(agents, roundsPerYear, inspectedId) {
 // ── INSPECTOR ──
 function renderInspector(agent, agents, roundsPerYear) {
   if (!agent) return;
-  const alive   = agents.filter(a => a.alive);
-  const total   = alive.reduce((s, a) => s + a.wealth, 0);
-  const rank    = sortAgents(alive).findIndex(a => a.id === agent.id) + 1;
-  const wr      = agent.tradesWon + agent.tradesLost > 0
+  const alive    = agents.filter(a => a.alive);
+  const total    = alive.reduce((s, a) => s + a.wealth, 0);
+  const byWealth = [...alive].sort((a, b) => b.wealth - a.wealth);
+  const rank     = byWealth.findIndex(a => a.id === agent.id) + 1;
+  const wr       = agent.tradesWon + agent.tradesLost > 0
     ? ((agent.tradesWon / (agent.tradesWon + agent.tradesLost)) * 100).toFixed(1) + '%' : '—';
-  const lifePct = Math.min(100, agent.ageYears / agent.lifespan * 100);
+  const lifePct   = Math.min(100, agent.ageYears / agent.lifespan * 100);
   const tierColors = { elite: '#e85050', skilled: '#f0c040', lower: '#4fc4a0', normal: '#8899aa' };
   const col = tierColors[agent.tier.name] || '#8899aa';
-  const html = `<strong>Name</strong> ${agent.name} ${agent.surname}<br>
-<strong>Tier</strong> ${agent.tier.name}<br>
-<strong>Wealth</strong> ${agent.wealth.toFixed(2)}<br>
-<strong>Peak</strong> ${fmtW(agent.peakWealth || agent.wealth)}<br>
-<strong>Rank</strong> #${rank > 0 ? rank : '—'} of ${alive.length}<br>
-<strong>Share</strong> ${total > 0 && agent.alive ? ((agent.wealth / total) * 100).toFixed(2) : '—'}%<br>
-<strong>Age</strong> ${agent.ageYears.toFixed(1)}y / ${agent.lifespan}y (${lifePct.toFixed(0)}%)<br>
-<strong>Generation</strong> ${agent.generation}${agent.parentName ? ` (child of ${agent.parentName})` : ''}<br>
-<strong>Win rate</strong> ${wr} (${agent.tradesWon}W / ${agent.tradesLost}L)<br>
-<strong>Bankruptcies</strong> ${agent.bankruptcies}`;
+  const pctChange = agent.initialWealth > 0
+    ? ((agent.wealth - agent.initialWealth) / agent.initialWealth * 100).toFixed(0) : null;
+  const chgColor = pctChange === null ? '#5a5e72' : +pctChange > 0 ? '#4fc4a0' : +pctChange < 0 ? '#e85050' : '#5a5e72';
+
+  const html = `
+    <div class="hpd-name" style="color:${col}">${escHtml(agent.name)} ${escHtml(agent.surname)}</div>
+    <div class="hpd-sub">
+      <span class="tier-badge tier-${agent.tier.name}">${agent.tier.name}</span>
+      ${agent.alive ? '<span class="status-alive">● Alive</span>' : '<span class="status-dead">✝ Deceased</span>'}
+      · Generation ${agent.generation}
+    </div>
+    ${agent.parentName ? `<div class="hpd-parent hint">Child of ${escHtml(agent.parentName)} ${escHtml(agent.surname)}</div>` : ''}
+    <div class="hpd-stats">
+      <div class="hpd-row"><span class="hpd-label">Wealth rank</span><span class="hpd-value">#${rank > 0 ? rank : '—'} of ${alive.length}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Location</span><span class="hpd-value">${agent.location ? escHtml(agent.location.city) + ' · ' + escHtml(agent.location.region) : '—'}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Born</span><span class="hpd-value">${escHtml(agent.birthDateStr || '—')}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Age</span><span class="hpd-value">${agent.ageYears.toFixed(1)}y / ${agent.lifespan}y (${lifePct.toFixed(0)}%)</span></div>
+      <div class="hpd-row"><span class="hpd-label">Starting wealth</span><span class="hpd-value">${fmtW(agent.initialWealth)}</span></div>
+      <div class="hpd-row"><span class="hpd-label">${agent.alive ? 'Current' : 'Final'} wealth</span><span class="hpd-value">${fmtW(agent.wealth)}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Peak wealth</span><span class="hpd-value">${fmtW(agent.peakWealth || agent.wealth)}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Share of total</span><span class="hpd-value">${total > 0 ? ((agent.wealth / total) * 100).toFixed(2) : '—'}%</span></div>
+      <div class="hpd-row"><span class="hpd-label">vs starting</span><span class="hpd-value" style="color:${chgColor}">${pctChange !== null ? (+pctChange > 0 ? '+' : '') + pctChange + '%' : '—'}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Trades won</span><span class="hpd-value">${agent.tradesWon}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Trades lost</span><span class="hpd-value">${agent.tradesLost}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Win rate</span><span class="hpd-value">${wr}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Bankruptcies</span><span class="hpd-value">${agent.bankruptcies}</span></div>
+    </div>`;
 
   const titleEl = document.getElementById('inspector-title');
-  if (titleEl) titleEl.textContent = `${agent.name} ${agent.surname} · #${agent.id}`;
+  if (titleEl) titleEl.textContent = `${agent.name} ${agent.surname}`;
   const sf = document.getElementById('inspectorStatsFloat');
   if (sf) sf.innerHTML = html;
   const cf = document.getElementById('inspectorChartFloat');
-  if (cf) drawMiniHistory(cf, agent.history, col);
+  if (cf) { resizeCanvas(cf); drawMiniHistory(cf, agent.history, col); }
   const ph = document.getElementById('detail-placeholder');
   if (ph) ph.style.display = 'none';
   const ci = document.getElementById('inspectorChart');
-  if (ci) { ci.style.display = 'block'; drawMiniHistory(ci, agent.history, col); }
+  if (ci) { ci.style.display = 'block'; resizeCanvas(ci); drawMiniHistory(ci, agent.history, col); }
   const si = document.getElementById('inspectorStats');
   if (si) { si.style.display = 'block'; si.innerHTML = html; }
 }
@@ -402,6 +421,7 @@ function renderHistoryPersonDetail() {
     ${ag.parentName ? `<div class="hpd-parent hint">Child of ${escHtml(ag.parentName)} ${escHtml(ag.surname)}</div>` : ''}
     <div class="hpd-stats">
       <div class="hpd-row"><span class="hpd-label">Born</span><span class="hpd-value">${escHtml(ag.birthDateStr || '—')}</span></div>
+      <div class="hpd-row"><span class="hpd-label">Location</span><span class="hpd-value">${ag.location ? escHtml(ag.location.city) + ' · ' + escHtml(ag.location.region) : '—'}</span></div>
       <div class="hpd-row"><span class="hpd-label">Died</span><span class="hpd-value">${ag.alive ? '—' : escHtml(ag.deathDateStr || '?')}</span></div>
       <div class="hpd-row"><span class="hpd-label">Age</span><span class="hpd-value">${ag.ageYears.toFixed(1)}y / ${ag.lifespan}y</span></div>
       <div class="hpd-row"><span class="hpd-label">Cause of death</span><span class="hpd-value">${ag.alive ? '—' : escHtml(ag.deathCause || '?')}</span></div>
@@ -438,5 +458,80 @@ function switchTab(name) {
     initHistoryEvents();
     renderHistoryTab();
   }
+  if (name === 'geo') renderGeographyTab();
   setTimeout(() => window._redraw && window._redraw(), 10);
+}
+// ══════════════════════════════════════════════
+// GEOGRAPHY TAB
+// ══════════════════════════════════════════════
+
+function renderGeographyTab() {
+  // Canvas heatmap
+  const gc = document.getElementById('geoCanvas');
+  if (gc) { resizeCanvas(gc); drawGeography(gc, agents); }
+
+  // Right panel: region & city breakdown
+  const alive = agents.filter(a => a.alive && a.location);
+  if (!alive.length) return;
+
+  const globalTotal = alive.reduce((s, a) => s + a.wealth, 0);
+  const globalAvg   = globalTotal / alive.length;
+
+  // Aggregate by region then city
+  const regionMap = new Map();
+  for (const ag of alive) {
+    const rk = ag.location.region;
+    if (!regionMap.has(rk)) regionMap.set(rk, { region: rk, cities: new Map() });
+    const rm = regionMap.get(rk);
+    const ck = ag.location.city;
+    if (!rm.cities.has(ck)) rm.cities.set(ck, { city: ck, agents: [] });
+    rm.cities.get(ck).agents.push(ag);
+  }
+
+  const regions = [...regionMap.values()].map(r => {
+    const cities = [...r.cities.values()].map(c => {
+      const ws   = c.agents.map(a => a.wealth);
+      const tot  = ws.reduce((s, v) => s + v, 0);
+      return { city: c.city, count: c.agents.length, avg: tot / ws.length, total: tot };
+    }).sort((a, b) => b.avg - a.avg);
+    const rTotal = cities.reduce((s, c) => s + c.total, 0);
+    const rCount = cities.reduce((s, c) => s + c.count, 0);
+    return { region: r.region, cities, total: rTotal, avg: rTotal / rCount, count: rCount };
+  }).sort((a, b) => b.avg - a.avg);
+
+  const maxAvg = Math.max(...regions.flatMap(r => r.cities.map(c => c.avg)), 1);
+  const fmtW2 = v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(0);
+
+  const el = document.getElementById('geo-region-list');
+  if (!el) return;
+
+  const regionColors = {
+    'Europe':   '#5588cc',
+    'Americas': '#44aa88',
+    'Asia':     '#dd8844',
+    'Africa':   '#bb5566',
+  };
+
+  el.innerHTML = regions.map(r => {
+    const rc = regionColors[r.region] || '#5a6080';
+    const rShare = globalTotal > 0 ? ((r.total / globalTotal) * 100).toFixed(1) : '0';
+    const cityRows = r.cities.map(c => {
+      const barW = Math.round((c.avg / maxAvg) * 100);
+      const ratio = c.avg / Math.max(globalAvg, 1);
+      const valCol = ratio > 1.3 ? '#f0c040' : ratio < 0.7 ? '#5a8aaa' : '#8899aa';
+      return `<div class="geo-city-row">
+        <div class="geo-city-name">${escHtml(c.city)}</div>
+        <div class="geo-city-bar"><div class="geo-city-fill" style="width:${barW}%;background:${valCol}"></div></div>
+        <div class="geo-city-val">${fmtW2(c.avg)} · ${c.count}</div>
+      </div>`;
+    }).join('');
+
+    return `<div class="geo-region-section">
+      <div class="geo-region-header" style="border-left-color:${rc}">
+        <span class="geo-region-name">${escHtml(r.region)}</span>
+        <span class="geo-region-meta">${r.count} agents · avg ${fmtW2(r.avg)} · ${rShare}% wealth</span>
+      </div>
+      ${cityRows}
+    </div>`;
+  }).join('');
 }
