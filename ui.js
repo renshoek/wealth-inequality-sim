@@ -200,7 +200,11 @@ function renderInspector(agent, agents, roundsPerYear) {
   const ci = document.getElementById('inspectorChart');
   if (ci) { ci.style.display = 'block'; resizeCanvas(ci); drawMiniHistory(ci, agent.history, col); }
   const si = document.getElementById('inspectorStats');
-  if (si) { si.style.display = 'block'; si.innerHTML = html; }
+  if (si) {
+    si.style.display = 'block';
+    si.innerHTML = html + `<button class="inspector-open-btn" style="margin-top:12px">Open full profile →</button>`;
+    si.querySelector('.inspector-open-btn').addEventListener('pointerdown', () => window._openDetailPage(agent.id));
+  }
 }
 
 // ── LOG ──
@@ -468,6 +472,13 @@ function renderHistoryPersonDetail() {
   } else if (chartEl) {
     chartEl.style.display = 'none';
   }
+
+  const btn = document.createElement('button');
+  btn.className = 'inspector-open-btn';
+  btn.style.marginTop = '10px';
+  btn.textContent = 'Open full profile →';
+  btn.addEventListener('pointerdown', () => window._openDetailPage(ag.id));
+  el.appendChild(btn);
 }
 
 function renderHistoryTab() {

@@ -23,7 +23,7 @@ function calcTax(amount, taxMode, flatRate, brackets) {
   return tax;
 }
 
-function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
+function runStep(agents, params, tradeLogBuf, recessionState, taxPool, flashBuf) {
   const {
     trades, maxbet, taxMode, flatTax, brackets,
     redist, luck, baseWealth,
@@ -104,15 +104,103 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     }
   }
 
-  // ── 4. Trades — 50/50 pure luck, recession drops volume to 25% ──
+  // ── 4. Trades — scoped by wealth percentile, recession drops volume to 25% ──
   const activeTrades = recessionState.active
     ? Math.max(1, Math.round(trades * 0.25))
     : trades;
 
+  const { cityThreshold = 60, regionalThreshold = 90, tradeWeight = 0 } = params;
+
+  // Pre-sort once to get wealth percentile ranks (0–100)
+  const sortedByWealth = [...alive].sort((a, b) => a.wealth - b.wealth);
+  const wealthPct = new Map();
+  sortedByWealth.forEach((ag, i) => {
+    wealthPct.set(ag.id, alive.length > 1 ? (i / (alive.length - 1)) * 100 : 50);
+  });
+
+  // Pre-build city and region pools for fast lookup
+  const cityPools   = new Map();
+  const regionPools = new Map();
+  for (const ag of alive) {
+    const c = ag.location?.city   ?? '?';
+    const r = ag.location?.region ?? '?';
+    if (!cityPools.has(c))   cityPools.set(c,   []);
+    if (!regionPools.has(r)) regionPools.set(r, []);
+    cityPools.get(c).push(ag);
+    regionPools.get(r).push(ag);
+  }
+
+  // Weighted initiator selection — build cumulative weight array once per step
+  // weight = lerp(1, sqrt(wealth), tradeWeight) so at 0 it's pure uniform
+  let initiatorCumWeights = null;
+  let initiatorTotal = 0;
+  if (tradeWeight > 0) {
+    initiatorCumWeights = new Float64Array(alive.length);
+    let cum = 0;
+    for (let i = 0; i < alive.length; i++) {
+      const w = 1 + tradeWeight * (Math.sqrt(Math.max(alive[i].wealth, 0.01)) - 1);
+      cum += Math.max(w, 0.001);
+      initiatorCumWeights[i] = cum;
+    }
+    initiatorTotal = cum;
+  }
+
+  function pickInitiator() {
+    if (!initiatorCumWeights) return alive[Math.floor(Math.random() * alive.length)];
+    const r = Math.random() * initiatorTotal;
+    // binary search
+    let lo = 0, hi = alive.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (initiatorCumWeights[mid] < r) lo = mid + 1; else hi = mid;
+    }
+    return alive[lo];
+  }
+
+  // Weighted partner selection within a pool
+  function pickPartner(pool) {
+    if (!initiatorCumWeights || pool.length === 0) {
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+    // build small cumulative for this pool
+    let cum = 0, total = 0;
+    const weights = new Float64Array(pool.length);
+    for (let i = 0; i < pool.length; i++) {
+      const w = 1 + tradeWeight * (Math.sqrt(Math.max(pool[i].wealth, 0.01)) - 1);
+      cum += Math.max(w, 0.001);
+      weights[i] = cum;
+    }
+    total = cum;
+    const r = Math.random() * total;
+    let lo = 0, hi = pool.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (weights[mid] < r) lo = mid + 1; else hi = mid;
+    }
+    return pool[lo];
+  }
+
   for (let t = 0; t < activeTrades; t++) {
-    const a = alive[Math.floor(Math.random() * alive.length)];
-    const b = alive[Math.floor(Math.random() * alive.length)];
-    if (!a || !b || a === b) continue;
+    const a   = pickInitiator();
+    const pct = wealthPct.get(a.id) ?? 50;
+    const ac  = a.location?.city   ?? '?';
+    const ar  = a.location?.region ?? '?';
+
+    // Build eligible partner pool based on wealth percentile
+    let pool;
+    if (pct < cityThreshold) {
+      const cp = (cityPools.get(ac) || []).filter(x => x !== a);
+      pool = cp.length > 0 ? cp
+           : (regionPools.get(ar) || []).filter(x => x !== a);
+    } else if (pct < regionalThreshold) {
+      pool = (regionPools.get(ar) || []).filter(x => x !== a);
+    } else {
+      pool = alive.filter(x => x !== a);
+    }
+    if (!pool || pool.length === 0) pool = alive.filter(x => x !== a);
+    if (pool.length === 0) continue;
+
+    const b = pickPartner(pool);
 
     const poorer = Math.min(a.wealth, b.wealth);
     if (poorer < 0.001) continue;
@@ -165,6 +253,8 @@ function runStep(agents, params, tradeLogBuf, recessionState, taxPool) {
     if (tradeLogBuf.length < 500) {
       tradeLogBuf.unshift(entry);
     }
+    // Flash buf — always written, caller drains each step
+    if (flashBuf) flashBuf.push({ aId: a.id, bId: b.id, winner: aWins ? a.id : b.id, scope });
   }
 
   // ── 5. Recession erosion ──

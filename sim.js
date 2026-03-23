@@ -16,6 +16,25 @@ let inspectedId       = null;
 let giniHistory       = [];
 let taxPoolHistory    = [];
 
+let simView = 'charts'; // 'charts' | 'bubbles'
+const bubbleState = {
+  positions: new Map(),
+  flashes:   [],
+  flashBuf:  [],        // drained each step, passed to runStep
+  zones:     null,
+  lastW:     0,
+  lastH:     0,
+};
+// Physics knobs — exposed to debug panel
+const bubblePhysics = {
+  globalStr:  0.010,   // wealth-to-canvas-center force
+  cityStr:    0.020,   // city cohesion force
+  damping:    0.94,    // velocity damping per frame
+  jitter:     0.12,    // random wiggle per frame
+  spacing:    6,       // min px gap between bubble edges
+  flashTTL:   1800,    // ms trade lines stay visible
+};
+
 // All agents ever created (alive + deceased) — used by History tab
 let allAgentsMap = new Map();
 
@@ -44,6 +63,9 @@ const DEFAULTS = {
   speed:            16,
   moneyPrint:       100,
   redistWeights: { q1: 1.0, q2: 1.0, q3: 1.0, q4: 1.0 },
+  cityThreshold:     60,
+  regionalThreshold: 90,
+  tradeWeight:       0,   // 0 = uniform, 1 = fully wealth-weighted initiator & partner selection
 };
 
 const p = JSON.parse(JSON.stringify(DEFAULTS));
@@ -80,6 +102,12 @@ function init() {
   recessionState.active     = false;
   recessionState.roundsLeft = 0;
   inspectedId        = null;
+  bubbleState.positions.clear();
+  bubbleState.flashes.length   = 0;
+  bubbleState.flashBuf.length  = 0;
+  bubbleState.zones  = null;
+  bubbleState.lastW  = 0;
+  bubbleState.lastH  = 0;
   closeInspector();
   redraw();
   updateHeader(agents, simDate, totalDeaths, totalBankruptcies);
@@ -91,6 +119,8 @@ function step() {
   const doRedist    = redistPending;
   redistPending     = yearChanged;
 
+  bubbleState.flashBuf.length = 0; // drain before step
+
   const stepResult = runStep(agents, {
     trades: p.trades, maxbet: p.maxbet,
     taxMode: p.taxMode, flatTax: p.flatTax, brackets: p.brackets,
@@ -99,9 +129,26 @@ function step() {
     bankruptcyPayout: p.bankruptcyPayout,
     baseWealth: p.startWealth,
     moneyPrint: p.moneyPrint,
+    cityThreshold: p.cityThreshold,
+    regionalThreshold: p.regionalThreshold,
+    tradeWeight: p.tradeWeight,
     round, roundsPerYear: rpy,
     yearChanged, redistPending: doRedist,
-  }, tradeLog, recessionState, taxPool);
+  }, tradeLog, recessionState, taxPool, bubbleState.flashBuf);
+
+  // Convert flashBuf → screen-space flash lines (only if bubble view active)
+  if (simView === 'bubbles' && bubbleState.zones && bubbleState.flashBuf.length) {
+    const now = performance.now();
+    for (const f of bubbleState.flashBuf) {
+      const pa = bubbleState.positions.get(f.aId);
+      const pb = bubbleState.positions.get(f.bId);
+      if (pa && pb) {
+        const col = f.scope === 'local' ? '#4fc4a0' : f.scope === 'regional' ? '#f0c040' : '#e85050';
+        bubbleState.flashes.push({ x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y, born: now, color: col });
+        if (bubbleState.flashes.length > 800) bubbleState.flashes.shift();
+      }
+    }
+  }
 
   if (stepResult) totalBankruptcies += stepResult.bankruptciesThisStep;
 
@@ -159,12 +206,18 @@ function loop(ts) {
   const interval = p.speed === 0 ? 0 : p.speed;
   if (ts - lastFrame >= interval) {
     step();
-    redraw();
+    if (simView === 'charts') redraw();
     updateHeader(agents, simDate, totalDeaths, totalBankruptcies);
     const active = document.querySelector('.tab-panel.active');
     if (active) {
-      if (active.id === 'panel-agents')  renderAgentsView(agents, roundsPerYear(), inspectedId);
-      if (active.id === 'panel-log')     renderLog(tradeLog);
+      if (active.id === 'panel-agents') {
+        renderAgentsView(agents, roundsPerYear(), inspectedId);
+        if (inspectedId !== null) {
+          const _iag = agents.find(a => a.id === inspectedId && a.alive) || allAgentsMap.get(inspectedId);
+          if (_iag) renderInspector(_iag, agents, roundsPerYear());
+        }
+      }
+      if (active.id === 'panel-log'     && round % 25 === 0) renderLog(tradeLog);
       if (active.id === 'panel-history' && round % 30 === 0) renderHistoryTab();
       if (active.id === 'panel-geo')     renderGeographyTab();
       if (active.id === 'panel-detail' && inspectedId !== null && round % 5 === 0) {
@@ -175,8 +228,56 @@ function loop(ts) {
     }
     lastFrame = ts;
   }
+
+  // Bubble physics + draw runs every rAF frame for smooth animation,
+  // regardless of simulation step rate
+  if (simView === 'bubbles') {
+    const active = document.querySelector('.tab-panel.active');
+    if (active?.id === 'panel-sim') _tickAndDrawBubbles();
+  }
+
   if (playing) rafId = requestAnimationFrame(loop);
 }
+
+function _tickAndDrawBubbles() {
+  const bc = document.getElementById('bubbleCanvas');
+  if (!bc) return;
+  const rect = bc.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  if (bubbleState.lastW !== rect.width || bubbleState.lastH !== rect.height) {
+    resizeCanvas(bc);
+    bubbleState.zones = computeBubbleZones(rect.width, rect.height);
+    bubbleState.lastW = rect.width;
+    bubbleState.lastH = rect.height;
+  }
+  ensureBubblePositions(agents, bubbleState.positions, bubbleState.zones);
+  tickBubbles(agents, bubbleState.positions, bubbleState.zones, rect.width, rect.height, bubblePhysics);
+  drawBubbles(bc, agents, bubbleState.positions, bubbleState.zones, bubbleState.flashes, performance.now(), bubblePhysics);
+}
+
+function setSimView(v) {
+  simView = v;
+  document.getElementById('btn-sim-charts').classList.toggle('active', v === 'charts');
+  document.getElementById('btn-sim-bubbles').classList.toggle('active', v === 'bubbles');
+  document.getElementById('sim-charts-left').style.display = v === 'charts' ? '' : 'none';
+  document.getElementById('sim-charts-mid').style.display  = v === 'charts' ? '' : 'none';
+  document.getElementById('bubbles-section').style.display = v === 'bubbles' ? 'flex' : 'none';
+  if (v === 'charts') redraw();
+  if (v === 'bubbles') {
+    const bc = document.getElementById('bubbleCanvas');
+    if (bc) {
+      const rect = bc.getBoundingClientRect();
+      if (rect.width && rect.height) {
+        resizeCanvas(bc);
+        bubbleState.zones = computeBubbleZones(rect.width, rect.height);
+        bubbleState.lastW = rect.width;
+        bubbleState.lastH = rect.height;
+        ensureBubblePositions(agents, bubbleState.positions, bubbleState.zones);
+      }
+    }
+  }
+}
+window.setSimView = setSimView;
 
 function startLoop() {
   if (rafId) cancelAnimationFrame(rafId);
@@ -229,6 +330,15 @@ window._selectAgent = function(id) {
   inspectedId = id;
   const ag = agents.find(a => a.id === id && a.alive) || allAgentsMap.get(id);
   if (!ag) return;
+  // First step: show side panel in agents tab
+  switchTab('agents');
+  renderInspector(ag, agents, roundsPerYear());
+};
+
+window._openDetailPage = function(id) {
+  inspectedId = id;
+  const ag = agents.find(a => a.id === id && a.alive) || allAgentsMap.get(id);
+  if (!ag) return;
   switchTab('detail');
   renderAgentDetail(ag, agents, tradeLog, roundsPerYear());
 };
@@ -255,6 +365,9 @@ function syncAllControls() {
     ['sl-recession',   'disp-recession',   p.recessionChance],
     ['sl-mortality',   'disp-mortality',   p.mortalityRate],
     ['sl-moneyprint',  'disp-moneyprint',  p.moneyPrint],
+    ['sl-city-threshold',     'disp-city-threshold',     p.cityThreshold],
+    ['sl-regional-threshold', 'disp-regional-threshold', p.regionalThreshold],
+    ['sl-trade-weight',       'disp-trade-weight',       p.tradeWeight],
   ];
   sliders.forEach(([sid, did, val]) => {
     const sl = document.getElementById(sid), dp = document.getElementById(did);
@@ -286,7 +399,7 @@ document.getElementById('barCanvas').addEventListener('click', e => {
   if (idx < 0 || idx >= alive.length) return;
   const sorted = [...alive].sort((a, b) => a.wealth - b.wealth);
   const ag = sorted[idx];
-  if (ag) { window._selectAgent(ag.id); switchTab('agents'); }
+  if (ag) { window._selectAgent(ag.id); }
 });
 
 // ── AGENTS TAB EVENT DELEGATION ──
@@ -325,6 +438,32 @@ bs('sl-recession',  'disp-recession',  v => p.recessionChance  = v);
 bs('sl-mortality',  'disp-mortality',  v => p.mortalityRate    = v);
 bs('sl-moneyprint', 'disp-moneyprint', v => p.moneyPrint       = v);
 
+// Market access threshold sliders — enforce city < regional
+document.getElementById('sl-city-threshold')?.addEventListener('input', e => {
+  p.cityThreshold = +e.target.value;
+  const rd = document.getElementById('sl-regional-threshold');
+  if (rd && p.cityThreshold >= p.regionalThreshold) {
+    p.regionalThreshold = Math.min(99, p.cityThreshold + 1);
+    rd.value = p.regionalThreshold;
+    const dp = document.getElementById('disp-regional-threshold');
+    if (dp) dp.textContent = p.regionalThreshold;
+  }
+  const dp = document.getElementById('disp-city-threshold');
+  if (dp) dp.textContent = p.cityThreshold;
+});
+document.getElementById('sl-regional-threshold')?.addEventListener('input', e => {
+  p.regionalThreshold = +e.target.value;
+  const cd = document.getElementById('sl-city-threshold');
+  if (cd && p.regionalThreshold <= p.cityThreshold) {
+    p.cityThreshold = Math.max(1, p.regionalThreshold - 1);
+    cd.value = p.cityThreshold;
+    const dp = document.getElementById('disp-city-threshold');
+    if (dp) dp.textContent = p.cityThreshold;
+  }
+  const dp = document.getElementById('disp-regional-threshold');
+  if (dp) dp.textContent = p.regionalThreshold;
+});
+
 document.getElementById('sel-speed').addEventListener('change',   e => { p.speed    = +e.target.value; });
 document.getElementById('sel-timeunit').addEventListener('change', e => { p.timeUnit = e.target.value; });
 
@@ -353,6 +492,12 @@ document.getElementById('sel-taxmode').addEventListener('change', e => {
   });
 });
 
+document.getElementById('sl-trade-weight')?.addEventListener('input', e => {
+  p.tradeWeight = +e.target.value;
+  const dp = document.getElementById('disp-trade-weight');
+  if (dp) dp.textContent = (+e.target.value).toFixed(2);
+});
+
 document.getElementById('log-filter')?.addEventListener('input', () => renderLog(tradeLog));
 
 const ro = new ResizeObserver(() => redraw());
@@ -361,4 +506,74 @@ const ro = new ResizeObserver(() => redraw());
   if (el) ro.observe(el);
 });
 
+// ── BUBBLE CANVAS INTERACTION ──
+(function() {
+  const bc = document.getElementById('bubbleCanvas');
+  if (!bc) return;
+
+  function hitTest(e) {
+    const rect = bc.getBoundingClientRect();
+    if (!rect.width) return null;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const alive = agents.filter(a => a.alive);
+    const maxW  = Math.max(...alive.map(a => a.wealth), 1);
+    for (const ag of alive) {
+      const pos = bubbleState.positions.get(ag.id); if (!pos) continue;
+      const r   = Math.max(3, Math.min(13, Math.sqrt(Math.max(ag.wealth,0)/maxW)*13));
+      const dx  = pos.x - mx, dy = pos.y - my;
+      if (dx*dx + dy*dy <= (r+3)*(r+3)) return ag;
+    }
+    return null;
+  }
+
+  bc.addEventListener('mousemove', e => {
+    if (simView !== 'bubbles') return;
+    const ag = hitTest(e);
+    const tt = document.getElementById('tt');
+    if (!tt) return;
+    if (ag) {
+      const w = ag.wealth >= 1000 ? (ag.wealth/1000).toFixed(1)+'k' : ag.wealth.toFixed(0);
+      tt.textContent = `${ag.name} ${ag.surname} · ${ag.location?.city ?? '?'} · ${w}`;
+      tt.style.display = 'block';
+      tt.style.left    = (e.clientX + 14) + 'px';
+      tt.style.top     = (e.clientY - 10) + 'px';
+      bc.style.cursor  = 'pointer';
+    } else {
+      tt.style.display = 'none';
+      bc.style.cursor  = '';
+    }
+  });
+
+  bc.addEventListener('mouseleave', () => {
+    const tt = document.getElementById('tt'); if (tt) tt.style.display = 'none';
+    bc.style.cursor = '';
+  });
+
+  bc.addEventListener('click', e => {
+    if (simView !== 'bubbles') return;
+    const ag = hitTest(e);
+    if (ag) window._selectAgent(ag.id);
+  });
+})();
+
 init();
+
+// ── BUBBLE PHYSICS DEBUG PANEL ──
+(function() {
+  function bp(id, valId, key, parse) {
+    const sl = document.getElementById(id);
+    const vl = document.getElementById(valId);
+    if (!sl || !vl) return;
+    sl.addEventListener('input', () => {
+      bubblePhysics[key] = parse(sl.value);
+      vl.textContent = sl.value;
+    });
+  }
+  bp('bp-global',  'bp-global-v',  'globalStr', parseFloat);
+  bp('bp-city',    'bp-city-v',    'cityStr',   parseFloat);
+  bp('bp-damp',    'bp-damp-v',    'damping',   parseFloat);
+  bp('bp-jitter',  'bp-jitter-v',  'jitter',    parseFloat);
+  bp('bp-spacing', 'bp-spacing-v', 'spacing',   parseInt);
+  bp('bp-ttl',     'bp-ttl-v',     'flashTTL',  parseInt);
+})();
